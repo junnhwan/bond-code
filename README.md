@@ -46,9 +46,7 @@ Session data defaults to `~/.bondcode/projects/<encoded-cwd>/`.
 
 ### Demo
 
-<video src="docs/images/demo.mp4" controls width="100%"></video>
-
-[Demo video (mp4)](docs/images/demo.mp4)
+https://github.com/user-attachments/assets/b3bd7427-bc4a-4620-82d3-e8975020f2ac
 
 ## What it does
 

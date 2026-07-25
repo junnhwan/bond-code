@@ -46,9 +46,7 @@ $env:BONDCODE_MODEL="your-model"
 
 ### 演示
 
-<video src="docs/images/demo.mp4" controls width="100%"></video>
-
-[演示视频（mp4）](docs/images/demo.mp4)
+https://github.com/user-attachments/assets/b3bd7427-bc4a-4620-82d3-e8975020f2ac
 
 ## 能做什么
 
