@@ -39,7 +39,7 @@ func selectBootstrapClient(cfg config.ModelConfig, opts Options) llm.Client {
 func defaultConfig() *config.Config {
 	return &config.Config{
 		Model: config.ModelConfig{
-			Provider:    "openai-compatible",
+			Provider:    "anthropic-compatible",
 			BaseURL:     "",
 			APIKeyEnv:   "BONDCODE_API_KEY",
 			Model:       "",
@@ -115,7 +115,7 @@ func defaultSubagentConfig() config.SubagentConfig {
 		MaxChildrenPerTurn:    3,
 		MaxDepth:              1,
 		DefaultTimeoutSeconds: 600,
-		EnableSpawn:           false,
+
 	}
 }
 

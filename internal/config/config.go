@@ -19,6 +19,9 @@ type Config struct {
 }
 
 type ModelConfig struct {
+	// Provider is informational only today. The runtime always uses the
+	// Anthropic Messages client (POST {base_url}/v1/messages); values other
+	// than anthropic-compatible do not switch the wire protocol.
 	Provider                 string         `yaml:"provider"`
 	BaseURL                  string         `yaml:"base_url"`
 	APIKeyEnv                string         `yaml:"api_key_env"`
@@ -131,7 +134,6 @@ type SubagentConfig struct {
 	MaxChildrenPerTurn    int  `yaml:"max_children_per_turn"`
 	MaxDepth              int  `yaml:"max_depth"`
 	DefaultTimeoutSeconds int  `yaml:"default_timeout_seconds"`
-	EnableSpawn           bool `yaml:"enable_spawn"`
 }
 
 // CollaborationConfig gates the Multi-Agent collaboration surface:

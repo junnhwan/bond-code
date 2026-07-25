@@ -1,8 +1,12 @@
 model:
-  provider: openai-compatible
-  base_url: https://api.deepseek.com/v1
+  # Wire protocol is always Anthropic Messages (POST {base_url}/v1/messages +
+  # Anthropic SSE). `provider` is informational only today — OpenAI Chat
+  # Completions / Responses are not implemented. Point base_url at an
+  # Anthropic-compatible root (no trailing /v1/messages).
+  provider: anthropic-compatible
+  base_url: https://open.bigmodel.cn/api/anthropic
   api_key_env: BONDCODE_API_KEY
-  model: deepseek-chat
+  model: glm-5.1
   temperature: 0.2
   max_tokens: 4096
   # Maximum network-idle time for a streaming response. Values <= 0 use the
@@ -93,7 +97,6 @@ subagent:
   max_children_per_turn: 3
   max_depth: 1
   default_timeout_seconds: 600
-  enable_spawn: false
 
 # Multi-Agent collaboration surface (agent_task / team_* / mailbox_* / optional
 # terminal backends). On by default; set enabled: false to drop these tools from

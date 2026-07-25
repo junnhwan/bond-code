@@ -11,18 +11,17 @@ import (
 	"github.com/junnhwan/bond-code/internal/llm"
 	"github.com/junnhwan/bond-code/internal/memory"
 	"github.com/junnhwan/bond-code/internal/safety"
-	"github.com/junnhwan/bond-code/internal/subagent"
 	"github.com/junnhwan/bond-code/internal/testutil/llmfake"
 	"github.com/junnhwan/bond-code/internal/todo"
 	"github.com/junnhwan/bond-code/internal/tool"
 )
 
-// TestLoopCanCallRuntimeMemoryTodoAndSpawnTools lives in the external test
-// package because it exercises real runtime tools (memory / todo / spawn) whose
-// packages ultimately import agent (subagent -> agent). Keeping it out of the
-// internal test package avoids an import cycle now that subagent reuses agent.Loop.
+// TestLoopCanCallRuntimeMemoryAndTodoTools lives in the external test package
+// because it exercises real runtime tools (memory / todo) whose packages may
+// transitively import agent. Keeping it out of the internal test package
+// avoids import cycles.
 
-func TestLoopCanCallRuntimeMemoryTodoAndSpawnTools(t *testing.T) {
+func TestLoopCanCallRuntimeMemoryAndTodoTools(t *testing.T) {
 	dataDir := t.TempDir()
 	memoryStore, err := memory.NewMemoryStore(dataDir)
 	if err != nil {
@@ -32,18 +31,11 @@ func TestLoopCanCallRuntimeMemoryTodoAndSpawnTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subagentClient := llm.NewFakeClient([]llm.Chunk{{Content: "subagent done", Done: true}})
-	subagentManager := subagent.NewSubagentManagerWithOptions(subagentClient, tool.NewRegistry(), subagent.ManagerOptions{
-		LoopFactory: func(req subagent.LoopRequest) *agent.Loop {
-			return agent.NewLoop(agent.LoopConfig{MaxSteps: req.Profile.MaxSteps}, subagentClient, req.Tools, safety.Policy{}, safety.StaticConfirmer(true))
-		},
-	})
 
 	registry := tool.NewRegistry()
 	for _, candidate := range []tool.Tool{
 		memory.NewMemorySaveTool(memoryStore),
 		todo.NewTodoWriteTool(taskStore),
-		subagent.NewSpawnTool(subagentManager, "session-test"),
 	} {
 		if err := registry.Register(candidate); err != nil {
 			t.Fatal(err)
@@ -54,8 +46,6 @@ func TestLoopCanCallRuntimeMemoryTodoAndSpawnTools(t *testing.T) {
 			ToolCall: &llm.ToolCall{ID: "call-memory", Name: "memory_save", Arguments: `{"type":"project","name":"Runtime tools","description":"Runtime tools are callable","content":"Runtime tools are callable"}`},
 		}, {
 			ToolCall: &llm.ToolCall{ID: "call-todo", Name: "todo_write", Arguments: `{"items":[{"subject":"Runtime tools","status":"in_progress"}]}`},
-		}, {
-			ToolCall: &llm.ToolCall{ID: "call-spawn", Name: "spawn", Arguments: `{"prompt":"background task"}`},
 			Done:     true,
 		}},
 		{{Content: "done", Done: true}},
@@ -80,7 +70,7 @@ func TestLoopCanCallRuntimeMemoryTodoAndSpawnTools(t *testing.T) {
 	if _, err := os.Stat(todoPath); err != nil {
 		t.Fatalf("expected todo_write to persist todos.json: %v", err)
 	}
-	for _, name := range []string{"memory_save", "todo_write", "spawn"} {
+	for _, name := range []string{"memory_save", "todo_write"} {
 		if !traceIncludesSuccessfulTool(result.Trace, name) {
 			t.Fatalf("expected trace to include successful %s result, got %#v", name, result.Trace.Events)
 		}

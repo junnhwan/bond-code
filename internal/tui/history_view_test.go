@@ -487,7 +487,4 @@ func TestRemovedLeaderHistorySequenceTypesNormally(t *testing.T) {
 	if got := model.inputValue(); got != "draftg" {
 		t.Fatalf("rune after removed Ctrl+X route should type normally, got %q", got)
 	}
-	if model.leaderPending {
-		t.Fatal("removed Ctrl+X route must not arm leader mode")
-	}
 }

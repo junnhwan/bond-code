@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/junnhwan/bond-code/internal/command"
 )
 
 // fakeSessionManager records mutations for assertion without touching disk.
@@ -195,33 +194,6 @@ func TestSessionManagerActionsMenuOffersSwitch(t *testing.T) {
 }
 
 // TestQuickSwitchNoOpWhenNoManager checks the compatibility helper is safe with no manager.
-func TestQuickSwitchNoOpWhenNoManager(t *testing.T) {
-	model := NewModel(Config{})
-	next, _ := model.quickSwitchSession(1)
-	if next.overlay.active() {
-		t.Fatal("expected quick switch to be a no-op without a manager")
-	}
-}
-
-// TestQuickSwitchTargetsFirstEntry checks slot 1 hits the top of the list.
-func TestQuickSwitchTargetsFirstEntry(t *testing.T) {
-	entries := []SessionInfo{{ID: "s1"}, {ID: "s2"}}
-	mgr := newFakeSessionManager(entries)
-	switched := ""
-	model := NewModel(Config{
-		SessionManager: mgr,
-		CommandEnv: command.Env{
-			SwitchSession: func(id string) error { switched = id; return nil },
-		},
-		ReloadSessionSeed: func(string) []SeedMessage { return nil },
-	})
-	model.quickSwitchSession(1)
-	if switched != "s1" {
-		t.Fatalf("expected quick switch to target s1, got %q", switched)
-	}
-}
-
-// earlierTime returns a time.Time that many hours ago, for ordering test fixtures.
 func earlierTime(hoursAgo int) time.Time {
 	return time.Now().Add(-time.Duration(hoursAgo) * time.Hour)
 }

@@ -259,9 +259,6 @@ func TestLeaderKeyIgnoredWhileQuestionPending(t *testing.T) {
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	model = updated.(Model)
 
-	if model.leaderPending {
-		t.Fatal("Ctrl+X must not arm leader shortcuts while a question owns input")
-	}
 	view := model.View()
 	if !strings.Contains(view, "Pick one") || strings.Contains(view, "leader") {
 		t.Fatalf("expected question panel to remain authoritative:\n%s", view)
@@ -276,9 +273,6 @@ func TestQuestionRequestDoesNotArmRemovedLeaderKey(t *testing.T) {
 	model := NewModel(Config{Questioner: q})
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	model = updated.(Model)
-	if model.leaderPending {
-		t.Fatal("removed Ctrl+X route must not arm leader mode")
-	}
 
 	go func() {
 		_, _ = q.Ask(context.Background(), ask.Question{
@@ -292,9 +286,6 @@ func TestQuestionRequestDoesNotArmRemovedLeaderKey(t *testing.T) {
 	updated, _ = model.Update(agentTickMsg{})
 	model = updated.(Model)
 
-	if model.leaderPending {
-		t.Fatal("question request must not arm removed leader shortcuts")
-	}
 	if model.question == nil {
 		t.Fatal("expected question request to remain pending")
 	}

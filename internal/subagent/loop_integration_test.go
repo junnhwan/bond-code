@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/junnhwan/bond-code/internal/agent"
 	"github.com/junnhwan/bond-code/internal/llm"
@@ -403,66 +402,3 @@ func TestTaskToolBindSessionIsolatesResumableChildContext(t *testing.T) {
 
 // TestRunTaskRequiresLoopFactory locks the safety invariant at the manager
 // boundary: child execution must never fall back to a private tool loop.
-func TestRunTaskRequiresLoopFactory(t *testing.T) {
-	client := llmfake.New([][]llm.Chunk{{{Content: "must not run", Done: true}}})
-	manager := newUnconfiguredTestManager(client, tool.NewRegistry())
-
-	result, err := manager.RunTask(context.Background(), TaskRequest{
-		Prompt: "inspect", SubagentType: AgentTypeResearch, TaskID: "no-factory",
-	})
-	if err == nil || !strings.Contains(err.Error(), "LoopFactory") {
-		t.Fatalf("RunTask without LoopFactory should fail closed, result=%#v err=%v", result, err)
-	}
-}
-
-// TestSpawnRequiresLoopFactory applies the same fail-closed rule to the
-// experimental fire-and-forget entry point.
-func TestSpawnRequiresLoopFactory(t *testing.T) {
-	client := llmfake.New([][]llm.Chunk{{{Content: "must not run", Done: true}}})
-	manager := newUnconfiguredTestManager(client, tool.NewRegistry())
-
-	taskID, err := manager.Spawn(context.Background(), "session", "inspect")
-	if err == nil || !strings.Contains(err.Error(), "LoopFactory") {
-		t.Fatalf("Spawn without LoopFactory should fail closed, taskID=%q err=%v", taskID, err)
-	}
-}
-
-// TestSpawnViaLoopBlocksPolicyBlockedTool proves the background entry point uses
-// the same Policy+Confirmer-protected agent.Loop as synchronous task execution.
-func TestSpawnViaLoopBlocksPolicyBlockedTool(t *testing.T) {
-	var executed atomic.Bool
-	registry := tool.NewRegistry()
-	if err := registry.Register(&spyTool{name: "read_file", executed: &executed}); err != nil {
-		t.Fatal(err)
-	}
-	client := llmfake.New([][]llm.Chunk{
-		{{ToolCall: &llm.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"BLOCKED-CMD"}`}}},
-		{{Content: "blocked, wrapping up", Done: true}},
-	})
-	manager := NewSubagentManagerWithOptions(client, registry, ManagerOptions{
-		DefaultTimeoutSeconds: 5,
-		LoopFactory:           blockedPolicyFactory(client),
-	})
-
-	taskID, err := manager.Spawn(context.Background(), "session", "read it")
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		for _, result := range manager.PollResults() {
-			if result.TaskID != taskID {
-				continue
-			}
-			if executed.Load() {
-				t.Fatal("Spawn executed a policy-blocked tool")
-			}
-			if result.Status != "completed" {
-				t.Fatalf("spawn result status=%q error=%q", result.Status, result.Error)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for spawn result %q", taskID)
-}

@@ -362,8 +362,6 @@ func TestCtrlLPreservesStateDuringActiveStreaming(t *testing.T) {
 	model.newOutputBelow = true
 	model.newOutputCount = 3
 	model.mode = ModePlan
-	model.leaderPending = true
-	model.whichKeyVisible = true
 	model.focus = FocusComposer
 	model.agentBarSelected = "child-1"
 	model.focusedTaskID = "child-1"
@@ -411,7 +409,7 @@ func TestCtrlLPreservesStateDuringActiveStreaming(t *testing.T) {
 	if next.inputValue() != beforeDraft || next.composer.Input.LineInfo() != beforeLine || next.scroll != 7 || !next.scrollPaused {
 		t.Fatal("Ctrl+L changed draft/cursor or transcript scroll state")
 	}
-	if next.mode != ModePlan || !next.leaderPending || !next.whichKeyVisible || !next.newOutputBelow || next.newOutputCount != 3 {
+	if next.mode != ModePlan || !next.newOutputBelow || next.newOutputCount != 3 {
 		t.Fatal("Ctrl+L changed mode or unrelated UI state")
 	}
 	if next.agentBarSelected != "child-1" || next.focusedTaskID != "child-1" || next.coordinatorDraft != "coordinator parked draft" {

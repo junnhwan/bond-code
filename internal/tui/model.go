@@ -20,8 +20,7 @@ type Model struct {
 	mode     Mode
 	verbose  bool
 	accent   string
-	// Display-density toggles (Phase 2.3). Loaded from preferences; flipped via
-	// toggleThinking / toggleTimestamps / toggleToolDetails and the palette.
+	// Display-density preferences (loaded from disk; no palette/leader toggles).
 	showThinking       bool
 	showTimestamps     bool
 	showToolDetails    bool
@@ -52,8 +51,6 @@ type Model struct {
 	agentBarSelected       string
 	focusedTaskID          string
 	coordinatorDraft       string
-	leaderPending          bool
-	whichKeyVisible        bool
 	search                 SearchState
 	reverseHistory         reverseHistorySearchState
 	// history backs the ctrl+h session-tree browser (exploratory backtracking).
@@ -61,28 +58,20 @@ type Model struct {
 	// (invariant 4), and a fork only happens on Enter while the agent is idle.
 	history historyState
 
-	// navTurnIdx is the turn the user last jumped to via alt+ctrl+p/n message
-	// navigation (-1 = not navigating, follow the bottom). Kept separate from
-	// scroll so manual scrolling does not reset the navigation cursor.
-	navTurnIdx int
-
-	// sessionHistory is the browser-style back/forward stack of visited session
-	// ids; sessionHistIdx points at the current one. sessionScrolls remembers
-	// each session's scroll offset so switching back restores the position.
+	// sessionHistory is the stack of visited session ids (for bookkeeping when
+	// switching via session manager / /resume). sessionScrolls remembers scroll.
 	sessionHistory []string
 	sessionHistIdx int
 	sessionScrolls map[string]int
 
-	// overlay is the active modal layer (command palette, list menus,
-	// alert/confirm/prompt dialogs). At most one is active at a time; see
-	// overlay.go. It is distinct from the agent-driven confirm/question/history
-	// panels, which carry agent-loop response contracts.
+	// overlay is the active modal layer (list menus, alert/confirm/prompt,
+	// session manager, diff). At most one is active at a time; see overlay.go.
+	// Distinct from agent-driven confirm/question/history panels.
 	overlay overlayState
 	// toasts are transient non-blocking notifications rendered in the top-right
 	// corner; see toast.go.
 	toasts []toast
-	// stash holds parked composer drafts (<leader>p); persisted to
-	// Config.StashPath. See prompt_stash.go.
+	// stash holds parked composer drafts; persisted to Config.StashPath.
 	stash []string
 
 	// lastTerminalTitle dedupes tea.SetWindowTitle emissions.
@@ -173,7 +162,6 @@ func NewModel(cfg Config) Model {
 		spinner:            spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		focus:              FocusComposer,
 		subagentTraces:     map[string]*AgentTrace{},
-		navTurnIdx:         -1,
 		sessionHistory:     []string{cfg.Status.SessionID},
 		sessionScrolls:     map[string]int{},
 		stash:              stash,

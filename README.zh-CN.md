@@ -4,7 +4,7 @@
 
 用 Go 实现的迷你 Coding Agent。
 
-BondCode 是一个轻量的 Coding Agent Runtime：模型通过工具（读/改/执行）完成编程任务，经安全策略确认后落地；交互界面为终端 TUI。模型接口走 Anthropic-compatible HTTP/SSE。
+BondCode 是一个轻量的 Coding Agent Runtime：模型通过工具（读/改/执行）完成编程任务，经安全策略确认后落地；交互界面为终端 TUI。模型接口目前只适配 Anthropic Messages（`POST …/v1/messages` + Anthropic SSE）；OpenAI Chat Completions / Responses 尚未支持。
 
 ## 快速开始
 
@@ -54,7 +54,7 @@ https://github.com/user-attachments/assets/b3bd7427-bc4a-4620-82d3-e8975020f2ac
 - **编程工具** — 读写文件、搜索、Shell；git / 测试等走 `run_command`
 - **安全** — 风险分级；`--yes` 只自动批准 low/medium；high 仍需确认；blocked 永不执行
 - **TUI** — 单栏终端工作区（细节见 reference）
-- **可选能力** — 记忆、todo、skills、子 agent `task`、多 agent 协作、MCP（见配置）
+- **可选能力** — 记忆、todo、skills、同步子 agent `task`、多 agent 协作（`agent_task` / team / mailbox）、MCP（见配置）
 
 ## 文档
 

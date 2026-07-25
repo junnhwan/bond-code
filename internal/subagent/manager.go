@@ -12,7 +12,6 @@ import (
 
 	"github.com/junnhwan/bond-code/internal/agent"
 	"github.com/junnhwan/bond-code/internal/llm"
-	"github.com/junnhwan/bond-code/internal/observe"
 	"github.com/junnhwan/bond-code/internal/tool"
 )
 
@@ -64,23 +63,6 @@ func NewSubagentManagerWithOptions(client llm.Client, registry *tool.Registry, o
 		options:  options,
 		results:  make(chan SubagentResult, 16),
 	}
-}
-
-// Spawn starts a new subagent in the background. It is kept for experimental/debug use.
-func (m *SubagentManager) Spawn(ctx context.Context, sessionID, prompt string) (string, error) {
-	if err := m.validateChildExecution(); err != nil {
-		return "", err
-	}
-	taskID := m.nextTaskID()
-	taskCtx, cancel := context.WithCancel(context.Background())
-	m.runningTasks.Store(taskID, cancel)
-
-	ts := m.getOrCreateTaskSet(sessionID)
-	ts.add(taskID)
-
-	observe.SafeGo("subagent-spawn", func() { m.runAgentLoop(taskCtx, taskID, sessionID, prompt) })
-
-	return taskID, nil
 }
 
 // RunTask runs a bounded subagent synchronously and returns the compact result.
@@ -289,34 +271,6 @@ func (m *SubagentManager) resultCap() int {
 	return m.options.MaxResultChars
 }
 
-func (m *SubagentManager) runAgentLoop(ctx context.Context, taskID, sessionID, prompt string) {
-	req := TaskRequest{
-		TaskID:       taskID,
-		Prompt:       prompt,
-		SubagentType: AgentTypeResearch,
-	}
-	result, err := m.runTaskViaLoop(ctx, req, DefaultAgentProfile(AgentTypeResearch), nil)
-	if err != nil {
-		result = &SubagentResult{
-			TaskID:    taskID,
-			Prompt:    prompt,
-			Status:    "failed",
-			Error:     err.Error(),
-			StartTime: time.Now(),
-			EndTime:   time.Now(),
-		}
-	}
-
-	m.runningTasks.Delete(taskID)
-	ts := m.getOrCreateTaskSet(sessionID)
-	ts.remove(taskID)
-
-	select {
-	case m.results <- *result:
-	default:
-	}
-}
-
 // runTaskViaLoop builds the profile's restricted tool registry and executes the
 // child through the injected, Policy+Confirmer-protected agent.Loop.
 func (m *SubagentManager) runTaskViaLoop(ctx context.Context, req TaskRequest, profile AgentProfile, resumeHistory []llm.Message) (*SubagentResult, error) {
@@ -343,12 +297,10 @@ func (m *SubagentManager) runTaskViaLoop(ctx context.Context, req TaskRequest, p
 	subagentTools := m.createSubagentToolsForProfile(profile)
 	messages := m.buildChildMessages(profile, req, resumeHistory)
 	loop := m.options.LoopFactory(LoopRequest{
-		Profile:      profile,
-		Tools:        subagentTools,
-		MaxSteps:     req.MaxSteps,
-		TaskID:       req.TaskID,
-		WorktreePath: req.WorktreePath,
-		RepoRoot:     req.RepoRoot,
+		Profile:  profile,
+		Tools:    subagentTools,
+		MaxSteps: req.MaxSteps,
+		TaskID:   req.TaskID,
 	})
 	if loop == nil {
 		result.Status = "failed"
@@ -528,7 +480,6 @@ func capString(value string, maxChars int, marker string) string {
 // longer registered for the main agent.
 var excludedTools = map[string]bool{
 	tool.Task:         true,
-	tool.Spawn:        true,
 	"message":         true,
 	tool.MemorySearch: true,
 	tool.MemorySave:   true,
@@ -549,7 +500,7 @@ func (m *SubagentManager) createSubagentToolsForProfile(profile AgentProfile) *t
 		if !m.options.AllowMCPTools && (strings.HasPrefix(name, "mcp_") || strings.HasPrefix(name, "mcp__")) {
 			continue
 		}
-		if !m.options.AllowRecursiveSubtasks && (name == tool.Task || name == tool.Spawn) {
+		if !m.options.AllowRecursiveSubtasks && name == tool.Task {
 			continue
 		}
 		if profile.AllowedTools != nil && !profile.AllowedTools[name] {

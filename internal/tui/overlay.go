@@ -9,18 +9,15 @@ import (
 )
 
 // The overlay system is the TUI's unified modal layer. It hosts short-lived,
-// focused interactions — the command palette, list menus (message/session
-// actions), alert/confirm/prompt dialogs — behind a single dispatch point in
+// focused interactions — list menus, alert/confirm/prompt dialogs, session
+// manager, and the diff viewer — behind a single dispatch point in
 // Model.Update and a single render hook in Model.View.
 //
 // Design notes:
-//   - At most one overlay is active at a time. Palette→confirm style
-//     transitions REPLACE the active overlay rather than stack, which keeps
-//     key dispatch single-target and avoids deep nesting.
-//   - The existing agent-driven panels (safety confirmation in confirm.go, the
-//     ask-user questioner, and the ctrl+h history browser) are intentionally
-//     NOT migrated here: they carry agent-loop response contracts
-//     (Confirmer.Respond, fork-resume) that do not fit the generic action model.
+//   - At most one overlay is active at a time. Transitions REPLACE the active
+//     overlay rather than stack, which keeps key dispatch single-target.
+//   - Agent-driven panels (safety confirmation, ask-user questioner, ctrl+h
+//     history browser) stay separate: they carry agent-loop response contracts.
 //   - Menu/confirm/prompt items carry Run closures so each call site builds its
 //     own action list; the overlay machinery stays context-agnostic.
 
@@ -30,7 +27,6 @@ type overlayKind int
 
 const (
 	overlayNone overlayKind = iota
-	overlayPalette
 	overlayMenu
 	overlayAlert
 	overlayConfirm
@@ -43,7 +39,6 @@ const (
 // sub-state matching `kind` is meaningful.
 type overlayState struct {
 	kind     overlayKind
-	palette  paletteOverlay
 	menu     menuOverlay
 	alert    alertOverlay
 	confirm  confirmOverlay
@@ -58,15 +53,6 @@ func (o overlayState) active() bool { return o.kind != overlayNone }
 func (m Model) closeOverlay() Model {
 	m.overlay = overlayState{}
 	return m
-}
-
-// --- palette (see palette.go for logic) ---
-
-type paletteOverlay struct {
-	actions  []Action
-	filtered []Action
-	query    string
-	selected int
 }
 
 // --- menu ---
@@ -181,8 +167,6 @@ func (m Model) handleOverlayKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	switch m.overlay.kind {
-	case overlayPalette:
-		return m.handlePaletteKey(msg)
 	case overlayMenu:
 		return m.handleMenuKey(msg)
 	case overlayAlert:
@@ -454,8 +438,6 @@ func (m Model) renderOverlay() string {
 	}
 	var box string
 	switch m.overlay.kind {
-	case overlayPalette:
-		box = m.renderPaletteBox()
 	case overlayMenu:
 		box = m.renderMenuBox()
 	case overlayAlert:
@@ -525,7 +507,7 @@ func (m Model) renderMenuBox() string {
 	if len(menu.items) == 0 {
 		lines = append(lines, dimStyle.Render("(no actions)"))
 	} else {
-		start, end := paletteWindow(menu.selected, len(menu.items), listH)
+		start, end := menuWindow(menu.selected, len(menu.items), listH)
 		for i := start; i < end; i++ {
 			lines = append(lines, renderMenuItemLine(menu.items[i], i == menu.selected, bodyW))
 		}
@@ -540,6 +522,28 @@ func (m Model) renderMenuBox() string {
 func overlayListHeight(viewportH, fixedContentH int) int {
 	const borderH = 2
 	return max(1, viewportH-borderH-fixedContentH)
+}
+
+// menuWindow returns the [start, end) index range of items to render so the
+// selected row stays visible inside a maxVisible-height list.
+func menuWindow(selected, total, maxVisible int) (int, int) {
+	if total <= maxVisible {
+		return 0, total
+	}
+	half := maxVisible / 2
+	start := selected - half
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxVisible
+	if end > total {
+		end = total
+		start = end - maxVisible
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start, end
 }
 
 func renderMenuItemLine(item menuItem, selected bool, width int) string {

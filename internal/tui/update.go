@@ -558,13 +558,6 @@ func (m Model) handleMiscMessage(msg tea.Msg) (Model, tea.Cmd) {
 		return m, titleCmd
 	case editorDoneMsg:
 		return m.applyEditorResult(msg)
-	case whichKeyShowMsg:
-		// Only show the popup if the user is still idling on the leader layer;
-		// a fast follow-up key already cleared leaderPending via handleLeaderKey.
-		if m.leaderPending {
-			m.whichKeyVisible = true
-		}
-		return m, nil
 	default:
 		return m.updateComposer(msg)
 	}

@@ -77,15 +77,6 @@ func (m Model) startReverseHistorySearch() Model {
 	return m
 }
 
-func (m Model) startTranscriptSearch() Model {
-	m.reverseHistory = reverseHistorySearchState{}
-	if m.composer.Suggestions != nil {
-		m.composer.Suggestions.Hide()
-	}
-	m.search = SearchState{Active: true, MatchIndex: -1}
-	return m
-}
-
 func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	if m.reverseHistory.active {
 		return m.handleReverseHistorySearchKey(msg)

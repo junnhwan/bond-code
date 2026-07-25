@@ -91,11 +91,11 @@ func newRootCommandWithBootstrapAndTUI(bootstrap bootstrapFunc, tuiRunner tuiRun
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to config YAML")
 	cmd.Flags().BoolVar(&fake, "fake", false, "use fake local LLM for tests and demos")
+	_ = cmd.Flags().MarkHidden("fake")
 	cmd.Flags().BoolVar(&yes, "yes", false, "auto-approve low and medium risk tool calls")
 	cmd.Flags().StringVar(&resume, "resume", "", "resume a previous conversation by id")
 	cmd.Flags().StringVar(&debugLevel, "debug", "", "enable debug trace at <data-dir>/<id>.debug.jsonl ('', 'default', or 'full'); BONDCODE_DEBUG env is equivalent")
 
-	cmd.AddCommand(newChatCommandWithBootstrapAndTUI(bootstrap, tuiRunner))
 	cmd.AddCommand(newHeadlessCommand(bootstrap))
 	cmd.AddCommand(newTeammateClientCommand())
 	cmd.AddCommand(newConfigCommand())

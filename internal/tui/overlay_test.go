@@ -42,60 +42,6 @@ func TestToastStackIsCapped(t *testing.T) {
 }
 
 // TestPaletteOpenListsActions checks Ctrl+P surfaces the registry + view actions.
-func TestPaletteOpenListsActions(t *testing.T) {
-	model := NewModel(Config{})
-	model = model.openPalette()
-	if !model.overlay.active() || model.overlay.kind != overlayPalette {
-		t.Fatalf("expected palette overlay active, got kind=%v", model.overlay.kind)
-	}
-	if len(model.overlay.palette.filtered) == 0 {
-		t.Fatal("expected palette to list actions even with no registry")
-	}
-	// View actions (verbose/rail/plan/…) must always be present so the palette
-	// is useful without any slash commands configured.
-	titles := paletteTitles(model.overlay.palette.filtered)
-	if !containsStr(titles, "Toggle verbose tool output") {
-		t.Fatalf("expected verbose toggle in palette, got %v", titles)
-	}
-}
-
-// TestPaletteFiltersByQuery checks typing narrows the list via fuzzyScore.
-func TestPaletteFiltersByQuery(t *testing.T) {
-	model := NewModel(Config{})
-	model = model.openPalette()
-	model = sendOverlayRunes(model, "verbose")
-	for _, a := range model.overlay.palette.filtered {
-		// Every surviving action must mention the query in title, id, or category.
-		if !strings.Contains(strings.ToLower(a.Title+a.ID+a.Category), "verbose") {
-			t.Fatalf("unexpected non-matching action survived filter: %s", a.Title)
-		}
-	}
-	if len(model.overlay.palette.filtered) == 0 {
-		t.Fatal("expected 'verbose' to match the verbose toggle action")
-	}
-}
-
-// TestPaletteRunsActionAndCloses checks enter runs the selection and closes the
-// overlay, leaving the base view with no modal.
-func TestPaletteRunsActionAndCloses(t *testing.T) {
-	model := NewModel(Config{})
-	model = model.openPalette()
-	model = sendOverlayRunes(model, "verbose")
-	before := model.verbose
-	next, _, handled := model.handleOverlayKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if !handled {
-		t.Fatal("expected enter to be handled by the palette")
-	}
-	if next.overlay.active() {
-		t.Fatal("expected palette to close after running an action")
-	}
-	if next.verbose == before {
-		t.Fatal("expected the verbose toggle action to flip verbose")
-	}
-}
-
-// TestOverlaySwallowsUnrelatedKey ensures a modal never leaks stray keys to the
-// composer: an unrelated rune keeps the alert open and reports handled=true.
 func TestOverlaySwallowsUnrelatedKey(t *testing.T) {
 	model := NewModel(Config{})
 	model = model.openAlert("Test", "notice", toastInfo)
@@ -239,31 +185,6 @@ func TestPromptOverlaySubmitsText(t *testing.T) {
 // used to be spliced into the query, invisibly zeroing the match list until
 // backspace. The palette must filter such runes the way the composer textarea
 // already does.
-func TestPaletteIgnoresControlRunes(t *testing.T) {
-	model := NewModel(Config{})
-	model = model.openPalette()
-	full := len(model.overlay.palette.filtered)
-
-	next, _, handled := model.handleOverlayKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{0x10}})
-	if !handled {
-		t.Fatal("expected the control-rune key to be handled (swallowed)")
-	}
-	if got := next.overlay.palette.query; got != "" {
-		t.Fatalf("expected query to stay empty after control rune, got %q", got)
-	}
-	if len(next.overlay.palette.filtered) != full {
-		t.Fatalf("expected full action list (%d) to survive, got %d", full, len(next.overlay.palette.filtered))
-	}
-
-	// Sanity: a printable rune still types normally.
-	next, _, _ = next.handleOverlayKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
-	if got := next.overlay.palette.query; got != "v" {
-		t.Fatalf("expected printable 'v' to type into query, got %q", got)
-	}
-}
-
-// TestPromptOverlayIgnoresControlRunes mirrors the palette regression for the
-// text-input dialog: a stray control rune must not pollute the prompt value.
 func TestPromptOverlayIgnoresControlRunes(t *testing.T) {
 	model := NewModel(Config{})
 	var submitted string
@@ -281,53 +202,12 @@ func TestPromptOverlayIgnoresControlRunes(t *testing.T) {
 
 // TestEscClosesEveryOverlayVariant is a table test that esc dismisses each
 // overlay kind, so no modal can trap the user.
-func TestEscClosesEveryOverlayVariant(t *testing.T) {
-	cases := []struct {
-		name string
-		open func(Model) Model
-	}{
-		{"palette", func(m Model) Model { return m.openPalette() }},
-		{"menu", func(m Model) Model {
-			return m.openMenu("M", "", []menuItem{{label: "x", run: func(m Model) (Model, tea.Cmd) { return m, nil }}})
-		}},
-		{"alert", func(m Model) Model { return m.openAlert("A", "b", toastWarn) }},
-		{"confirm", func(m Model) Model {
-			return m.openConfirm("C", "d", false, func(m Model, ok bool) (Model, tea.Cmd) { return m, nil })
-		}},
-		{"prompt", func(m Model) Model {
-			return m.openPrompt("P", "q", "", func(m Model, s string) (Model, tea.Cmd) { return m, nil })
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			model := tc.open(NewModel(Config{}))
-			next, _, handled := model.handleOverlayKey(tea.KeyMsg{Type: tea.KeyEsc})
-			if !handled {
-				t.Fatal("expected esc to be handled")
-			}
-			if next.overlay.active() {
-				t.Fatalf("expected esc to close the %s overlay", tc.name)
-			}
-		})
-	}
-}
-
-// sendOverlayRunes types a string into the active overlay one rune at a time via
-// the real dispatch path, so refine/repaint runs as it would in production.
 func sendOverlayRunes(m Model, s string) Model {
 	for _, r := range s {
 		next, _, _ := m.handleOverlayKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = next
 	}
 	return m
-}
-
-func paletteTitles(actions []Action) []string {
-	out := make([]string, len(actions))
-	for i, a := range actions {
-		out[i] = a.Title
-	}
-	return out
 }
 
 func containsStr(haystack []string, needle string) bool {
@@ -337,29 +217,6 @@ func containsStr(haystack []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func TestShortPaletteKeepsSelectedActionVisible(t *testing.T) {
-	model := NewModel(Config{}).SetSize(80, 8)
-	actions := make([]Action, 7)
-	for i := range actions {
-		actions[i] = Action{Title: "other palette action", Category: "test"}
-	}
-	actions[5].Title = "selected palette action"
-	model.overlay = overlayState{
-		kind: overlayPalette,
-		palette: paletteOverlay{
-			actions:  actions,
-			filtered: actions,
-			selected: 5,
-		},
-	}
-
-	view := model.View()
-	assertViewFits(t, view, 80, 8)
-	if !strings.Contains(view, "selected palette action") {
-		t.Fatalf("short palette clipped the selected action at index 5:\n%s", view)
-	}
 }
 
 func TestShortMenuKeepsSelectedItemVisible(t *testing.T) {

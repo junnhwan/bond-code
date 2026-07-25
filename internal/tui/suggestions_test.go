@@ -301,9 +301,6 @@ func TestRemovedLeaderKeyLeavesSuggestionsOpen(t *testing.T) {
 	if model.composer.Suggestions == nil || !model.composer.Suggestions.IsVisible() {
 		t.Fatalf("removed Ctrl+X route should leave suggestions open:\n%s", model.View())
 	}
-	if model.leaderPending || model.whichKeyVisible {
-		t.Fatalf("removed Ctrl+X route must not arm leader UI, pending=%v visible=%v", model.leaderPending, model.whichKeyVisible)
-	}
 }
 
 func TestSuggestionNavigationUsesArrowKeys(t *testing.T) {

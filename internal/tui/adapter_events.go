@@ -88,7 +88,6 @@ func (m Model) applyToolEvent(event agent.Event) Model {
 		return m.markNewOutputBelow()
 	case agent.EventToolConfirmationRequested:
 		m.timeline = m.timeline.UpdateAgentStatus("waiting", "confirm "+event.ToolName, eventTime(event))
-		m.leaderPending = false
 		m = m.deferQuestionDock()
 		m = m.closeHistoryOverlay()
 		if m.composer.Suggestions != nil {

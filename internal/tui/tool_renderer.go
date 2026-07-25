@@ -77,7 +77,7 @@ func setRenderVerbose(v bool) { renderVerbose = v }
 
 // defaultRenderer returns empty strings for every method, so renderToolActivity
 // falls through to its existing logic — zero behavior change for unregistered
-// tools (MCP tools, task, spawn, ask_user).
+// tools (MCP tools, task, ask_user).
 type defaultRenderer struct{}
 
 func (defaultRenderer) Verb(*ToolBlock) string              { return "" }

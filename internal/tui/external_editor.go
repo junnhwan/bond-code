@@ -71,7 +71,6 @@ func (m Model) applyEditorResult(msg editorDoneMsg) (Model, tea.Cmd) {
 	content := strings.TrimSuffix(msg.content, "\n")
 	content = strings.TrimSuffix(content, "\r")
 	m = m.SetInput(content)
-	m.navTurnIdx = -1
 	if msg.err != nil {
 		m = m.pushToast("editor exited with error; recovered content", toastWarn)
 	}

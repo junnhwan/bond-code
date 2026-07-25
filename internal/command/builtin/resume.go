@@ -19,7 +19,7 @@ import (
 //     via Result.SessionSwitched (the seed is re-fetched by the TUI, never
 //     carried here, so command stays free of tui imports).
 //
-// This is the in-app counterpart to `bondcode chat --resume <id>` (which spawns
+// This is the in-app counterpart to `bondcode --resume <id>` (which starts
 // a new process) and to ctrl+h fork-resume (which branches first). /resume
 // continues the target session in place.
 func ResumeCommand() command.Command {

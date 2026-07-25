@@ -44,11 +44,6 @@ type TaskRequest struct {
 	// open-ended work (e.g. batch/parallel work) set this higher so a subagent has
 	// room to gather evidence before the forced wrap-up.
 	MaxSteps int
-	// WorktreePath + RepoRoot 启用强制路径重写：工具输入里的 RepoRoot 前缀替换为
-	// WorktreePath，让 subagent 在隔离 worktree 内操作（worktree 物理隔离的强制层，
-	// 补 prompt 软隔离的不足）。
-	WorktreePath string
-	RepoRoot     string
 	// ResumeTaskID (Phase 4) continues a prior child agent's context. When set,
 	// RunTask looks up the child's saved message history by this id and runs the
 	// new prompt as a continuation of that conversation (same profile), instead
@@ -79,8 +74,8 @@ type BatchResult struct {
 
 // LoopRequest 描述构造一个子 agent Loop 所需的全部上下文。app 层的 LoopFactory
 // 据此构造一个复用主 agent.Loop 基础设施（client/policy/confirmer + child-scoped
-// contextx + worktree 重写 hook）的子 Loop，让 subagent batch 节点的工具
-// 执行与主 agent 走同一条 Policy+Confirmer 安全边界。
+// contextx）的子 Loop，让 subagent 节点的工具执行与主 agent 走同一条
+// Policy+Confirmer 安全边界。
 type LoopRequest struct {
 	Profile AgentProfile
 	Tools   *tool.Registry
@@ -90,10 +85,6 @@ type LoopRequest struct {
 	// TaskID scopes the child contextx spill/summary directory so a child's large
 	// tool results never pollute the main session audit.
 	TaskID string
-	// WorktreePath + RepoRoot enable the forced path-rewrite hook (the physical
-	// worktree-isolation layer applied by the app-owned PreToolUse hook).
-	WorktreePath string
-	RepoRoot     string
 }
 
 // LoopFactory 构造一个子 agent.Loop。SubagentManager 对缺失或返回 nil 的工厂

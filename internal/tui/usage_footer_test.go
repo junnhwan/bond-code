@@ -71,7 +71,6 @@ func TestUsageFooterReachableStatesOmitRemovedRoutes(t *testing.T) {
 			model.search = SearchState{Active: true, Query: "needle", MatchIndex: -1}
 		}},
 		{name: "stale leader state", setup: func(model *Model) {
-			model.leaderPending = true
 		}},
 		{name: "running", setup: func(model *Model) {
 			model.agent.Busy = true
@@ -82,7 +81,6 @@ func TestUsageFooterReachableStatesOmitRemovedRoutes(t *testing.T) {
 		}},
 		{name: "stale message navigation", setup: func(model *Model) {
 			model.timeline = model.timeline.StartUserTurn("prompt")
-			model.navTurnIdx = 0
 		}},
 		{name: "scroll", setup: func(model *Model) {
 			model.scroll = 5

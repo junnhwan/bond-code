@@ -159,9 +159,5 @@ func baseRuntimeTools(d runtimeToolDeps) []tool.Tool {
 func subagentRuntimeTools(d runtimeToolDeps, manager *subagent.SubagentManager) []tool.Tool {
 	taskTool := subagent.NewTaskTool(manager)
 	taskTool.BindSession(d.sessionID)
-	tools := []tool.Tool{taskTool}
-	if d.subagentConfig.EnableSpawn {
-		tools = append(tools, subagent.NewSpawnTool(manager, d.sessionID))
-	}
-	return tools
+	return []tool.Tool{taskTool}
 }

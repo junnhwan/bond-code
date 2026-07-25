@@ -4,7 +4,7 @@
 
 A minimal coding agent written in Go.
 
-BondCode is a lightweight coding-agent runtime: an LLM drives tools (read/edit/run) through a safety layer, with a terminal UI for interactive work. The model API is Anthropic-compatible HTTP/SSE.
+BondCode is a lightweight coding-agent runtime: an LLM drives tools (read/edit/run) through a safety layer, with a terminal UI for interactive work. The model API is Anthropic-compatible HTTP/SSE only — specifically the Anthropic Messages wire (`POST …/v1/messages`). OpenAI Chat Completions and Responses are not supported yet.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ https://github.com/user-attachments/assets/b3bd7427-bc4a-4620-82d3-e8975020f2ac
 - **Coding tools** — files, search, shell; git/tests via `run_command`
 - **Safety** — risk levels; `--yes` only auto-approves low/medium; high still needs confirm; blocked never runs
 - **TUI** — single-column terminal workspace (details in the reference)
-- **Optional** — memory, todos, skills, subagent `task`, multi-agent collaboration, MCP (see config)
+- **Optional** — memory, todos, skills, sync subagent `task`, multi-agent collaboration (`agent_task` / team / mailbox), MCP (see config)
 
 ## Docs
 

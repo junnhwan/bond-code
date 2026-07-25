@@ -422,11 +422,6 @@ func (m Model) composeFloatingLayers(view string) string {
 		view = m.renderOverlay()
 		needsHeightFit = true
 	}
-	// Which-key and overlays are mutually exclusive because the modal owns keys.
-	if m.whichKeyVisible && !m.overlay.active() {
-		view = blitBottomCenter(view, m.renderWhichKey(), m.width, m.height)
-		needsHeightFit = true
-	}
 	// Toasts remain visible over the base view and every modal layer.
 	if len(m.toasts) > 0 {
 		view = blitTopRight(view, renderToasts(m.toasts, m.width), m.width)

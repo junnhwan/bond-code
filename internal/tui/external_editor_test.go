@@ -47,9 +47,6 @@ func TestApplyEditorResultLoadsContent(t *testing.T) {
 	if got := next.inputValue(); got != "edited prompt" {
 		t.Fatalf("expected trailing newline stripped and content loaded, got %q", got)
 	}
-	if next.navTurnIdx != -1 {
-		t.Fatal("expected navTurnIdx disarmed after editor return")
-	}
 }
 
 // TestApplyEditorResultErrorWithoutContentWarns checks an editor error with no

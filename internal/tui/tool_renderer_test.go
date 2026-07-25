@@ -143,9 +143,9 @@ func TestToolRenderersCoverRealFileToolNames(t *testing.T) {
 }
 
 // TestDefaultRendererAllEmpty is the zero-regression contract: every tool not
-// in toolRenderers (MCP tools, task, spawn, ask_user) must still fall through.
+// in toolRenderers (MCP tools, task, ask_user) must still fall through.
 func TestDefaultRendererAllEmpty(t *testing.T) {
-	for _, name := range []string{"mcp__foo__bar", "task", "spawn", "ask_user"} {
+	for _, name := range []string{"mcp__foo__bar", "task", "ask_user"} {
 		r := RendererFor(name)
 		tool := &ToolBlock{Name: name, Status: ToolDone, Input: `{"x":1}`}
 		if r.Verb(tool) != "" || r.Subject(tool, false) != "" || r.Result(tool, false) != "" || r.Detail(tool, 80, false) != "" {

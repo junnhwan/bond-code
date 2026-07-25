@@ -30,5 +30,4 @@ const (
 	// Discovery is via dynamic skill listing (system-reminder), not skill_list.
 	Skill = "skill"
 	Task  = "task"
-	Spawn = "spawn"
 )

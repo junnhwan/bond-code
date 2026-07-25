@@ -9,14 +9,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The session manager (Phase 2.1/2.2) is a full-screen overlay that lists every
-// session with its title / preview, pin state, age, and message count, and lets
-// the user switch, rename, pin, or delete without leaving the TUI. The legacy
-// numeric quick-switch helper remains available for compatibility.
+// The session manager is a full-screen overlay that lists every session with
+// its title / preview, pin state, age, and message count, and lets the user
+// switch, rename, pin, or delete without leaving the TUI.
 //
-// It is the third full-screen overlay (after the history browser and the diff
-// viewer) and reuses the menu / prompt / confirm overlays for the per-session
-// actions, so the actual management UI is built from already-proven pieces.
+// It reuses the menu / prompt / confirm overlays for per-session actions.
 
 // sessionManagerState backs the manager overlay.
 type sessionManagerState struct {
@@ -56,26 +53,7 @@ func (m Model) loadSessionList() ([]SessionInfo, string) {
 	return entries, ""
 }
 
-// quickSwitchSession switches to the Nth session (1-based) in the
-// pin-then-recency order. It remains as a compatibility helper; out-of-range is
-// a no-op so callers remain safe even with few sessions.
-func (m Model) quickSwitchSession(slot int) (Model, tea.Cmd) {
-	if m.cfg.SessionManager == nil || slot < 1 {
-		return m, nil
-	}
-	entries, err := m.cfg.SessionManager.List()
-	if err != nil || slot > len(entries) {
-		return m, nil
-	}
-	target := entries[slot-1]
-	if target.Active {
-		return m, nil
-	}
-	return m.switchToSession(target.ID)
-}
-
-// switchToSession flips the app onto id and reloads the view. The bookkeeping
-// (push history, restore scroll) mirrors switchSessionFull.
+// switchToSession flips the app onto id and reloads the view.
 func (m Model) switchToSession(id string) (Model, tea.Cmd) {
 	if m.cfg.CommandEnv.SwitchSession == nil || m.cfg.ReloadSessionSeed == nil {
 		return m, nil

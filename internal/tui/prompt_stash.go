@@ -51,7 +51,6 @@ func (m Model) popStashIntoComposer(idx int) Model {
 	m.stash = append(m.stash[:idx], m.stash[idx+1:]...)
 	_ = saveStash(m.cfg.StashPath, m.stash)
 	m = m.SetInput(draft)
-	m.navTurnIdx = -1
 	return m.pushToast("popped stashed draft", toastInfo)
 }
 

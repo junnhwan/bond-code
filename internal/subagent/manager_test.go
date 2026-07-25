@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/junnhwan/bond-code/internal/llm"
 	"github.com/junnhwan/bond-code/internal/tool"
@@ -41,27 +40,6 @@ func (m *MockLLMClient) Stream(ctx context.Context, messages []llm.Message, tool
 	return chunks, errs
 }
 
-func TestSubagentManager_Spawn(t *testing.T) {
-	mockClient := &MockLLMClient{
-		Chunks: []llm.Chunk{
-			{Content: "Task completed successfully", Done: true},
-		},
-	}
-	registry := tool.NewRegistry()
-	manager := newTestManager(mockClient, registry)
-
-	taskID, err := manager.Spawn(context.Background(), "session1", "test task")
-	require.NoError(t, err)
-	assert.Contains(t, taskID, "sub-")
-
-	// Wait for subagent to complete
-	time.Sleep(100 * time.Millisecond)
-
-	results := manager.PollResults()
-	require.Len(t, results, 1)
-	assert.Equal(t, taskID, results[0].TaskID)
-	assert.Equal(t, "completed", results[0].Status)
-}
 
 func TestSubagentManager_CancelBySession(t *testing.T) {
 	// This test verifies CancelBySession can be called without error
@@ -84,7 +62,6 @@ func TestSubagentManager_CreateSubagentTools(t *testing.T) {
 	// Mock tools
 	registry.Register(&MockTool{name: "read_file"})
 	registry.Register(&MockTool{name: "task"})
-	registry.Register(&MockTool{name: "spawn"})
 	registry.Register(&MockTool{name: "memory_save"})
 	registry.Register(&MockTool{name: "mcp__filesystem__read_file"})
 
@@ -96,7 +73,6 @@ func TestSubagentManager_CreateSubagentTools(t *testing.T) {
 
 	assert.Contains(t, subNames, "read_file")
 	assert.NotContains(t, subNames, "task")
-	assert.NotContains(t, subNames, "spawn")
 	assert.NotContains(t, subNames, "memory_save")
 	assert.NotContains(t, subNames, "mcp__filesystem__read_file")
 }
@@ -127,7 +103,7 @@ func TestSubagentManager_RunTaskReturnsFinalAnswerWithMetadata(t *testing.T) {
 
 func TestSubagentManager_ProfileRestrictsResearchTools(t *testing.T) {
 	registry := tool.NewRegistry()
-	for _, name := range []string{"read_file", "search_text", "write_file", "run_command", "task", "spawn", "memory_save"} {
+	for _, name := range []string{"read_file", "search_text", "write_file", "run_command", "task", "memory_save"} {
 		require.NoError(t, registry.Register(&MockTool{name: name}))
 	}
 	manager := newUnconfiguredTestManager(nil, registry)
@@ -142,22 +118,6 @@ func TestSubagentManager_ProfileRestrictsResearchTools(t *testing.T) {
 	assert.NotContains(t, names, "task")
 }
 
-func TestSpawnToolDescribesFireAndForgetPrototype(t *testing.T) {
-	manager := newTestManager(&MockLLMClient{
-		Chunks: []llm.Chunk{{Content: "done", Done: true}},
-	}, tool.NewRegistry())
-	spawn := NewSpawnTool(manager, "session-test")
-
-	description := spawn.Description()
-	assert.Contains(t, description, "fire-and-forget")
-	assert.Contains(t, description, "not returned")
-
-	result, err := spawn.Execute(context.Background(), []byte(`{"prompt":"background task"}`))
-	require.NoError(t, err)
-	require.True(t, result.OK)
-	assert.Contains(t, result.Output, "fire-and-forget")
-	assert.Contains(t, result.Output, "not injected")
-}
 
 // MockTool for testing
 type MockTool struct {
@@ -218,41 +178,8 @@ func TestDefaultManagerOptionsAllowLongAgentTasks(t *testing.T) {
 // SpawnTool is long-lived in the runtime registry. After /resume it must use
 // the newly active session for task ownership so cancellation and cleanup do
 // not continue targeting the bootstrap session.
-func TestSpawnToolBindSessionChangesCancellationOwnership(t *testing.T) {
-	client := &blockingSpawnClient{started: make(chan struct{})}
-	manager := newTestManager(client, tool.NewRegistry())
-	spawn := NewSpawnTool(manager, "session-before-resume")
-	spawn.BindSession("session-after-resume")
 
-	result, err := spawn.Execute(context.Background(), []byte(`{"prompt":"keep running"}`))
-	require.NoError(t, err)
-	require.True(t, result.OK)
-	select {
-	case <-client.started:
-	case <-time.After(time.Second):
-		t.Fatal("spawned child did not start")
-	}
 
-	assert.Equal(t, 0, manager.CancelBySession("session-before-resume"))
-	assert.Equal(t, 1, manager.CancelBySession("session-after-resume"))
-}
-
-type blockingSpawnClient struct {
-	started chan struct{}
-}
-
-func (c *blockingSpawnClient) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolSpec) (<-chan llm.Chunk, <-chan error) {
-	chunks := make(chan llm.Chunk)
-	errs := make(chan error, 1)
-	go func() {
-		close(c.started)
-		<-ctx.Done()
-		errs <- ctx.Err()
-		close(errs)
-		close(chunks)
-	}()
-	return chunks, errs
-}
 
 func TestSubagentRegistryReusesGuardedFileToolInstances(t *testing.T) {
 	observations := builtin.NewObservationStore()

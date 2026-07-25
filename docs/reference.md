@@ -6,7 +6,7 @@ Usage and capability cheatsheet. UI walkthrough belongs in the README (screensho
 
 ## TUI (short)
 
-`bondcode` opens the TUI by default (`bondcode chat` is a compatibility alias).
+`bondcode` opens the TUI by default.
 
 Layout: **transcript** → **turn status** (when busy) → **`❯` prompt** (model · mode · ctx · permission) → **shortcuts bar**. Sessions, permissions, status, diff, MCP, skills open as overlays or slash panels—no permanent sidebar.
 
@@ -33,7 +33,7 @@ Layout: **transcript** → **turn status** (when busy) → **`❯` prompt** (mod
 | `Home` / `End` | Top / bottom of transcript |
 | `@path` / `@path:42-60` | Path mention + context expand on send |
 
-There is no command palette (`Ctrl+P`) or leader key; use slash commands or overlays.
+Use slash commands (type `/`) or overlays for sessions, permissions, status, and similar actions.
 
 ### Slash commands
 
@@ -82,7 +82,7 @@ Coding surface stays small: read/edit/search/shell. Git, tests, formatters go th
 | `mailbox_*` | `collaboration.enabled` (default on) |
 | `mcp__<server>__<tool>` | `mcp.enabled` **and** `mcp.inject_tools` |
 
-`spawn` is off unless `subagent.enable_spawn`. Skills load from `~/.bondcode/skills` and `<project>/.bondcode/skills` (optional `skills.root`).
+Skills load from `~/.bondcode/skills` and `<project>/.bondcode/skills` (optional `skills.root`).
 
 ### Delegation
 
@@ -115,14 +115,14 @@ Every real tool execution goes through `safety.Policy` + confirmer:
 
 ### Permission modes
 
-`--permission-mode default|accept-edits|plan|bypass` (TUI: `/permissions`).
+Switch in the TUI with `/permissions [mode]`, or set `safety.permission_mode` in config.
 
 | Mode | Behavior |
 |------|----------|
 | `default` | Standard policy |
 | `accept-edits` | Auto-accept ordinary file edits |
 | `plan` | Block write/exec-class tools; plan-oriented |
-| `bypass` | Only if `safety.enable_bypass` or trusted `--enable-bypass` |
+| `bypass` | Only if `safety.enable_bypass` is also true in config |
 
 Mode changes are recorded on the session JSONL before taking effect.
 
@@ -134,32 +134,44 @@ Mode changes are recorded on the session JSONL before taking effect.
 
 ## Sessions & debug
 
+Day-to-day session work is in the TUI (`/resume`, session manager overlay). Optional power-user CLI (hidden from `bondcode --help`, still invokable by name):
+
 ```powershell
-go run ./cmd/bondcode session list
-go run ./cmd/bondcode session show <id>
-go run ./cmd/bondcode session export <id> <path>
-go run ./cmd/bondcode session import <id> <path>
-go run ./cmd/bondcode session fork <src> <dst>
-go run ./cmd/bondcode session delete <id>
-go run ./cmd/bondcode session trace [id]           # recent if omitted
-go run ./cmd/bondcode session trace [id] --debug   # + model decision layer
+bondcode session list
+bondcode session show <id>
+bondcode session export <id> <path>
+bondcode session import <id> <path>
+bondcode session fork <src> <dst>
+bondcode session delete <id>
+bondcode session trace [id]           # recent if omitted
+bondcode session trace [id] --debug   # + model decision layer
 ```
 
-Opt-in decision trace: `--debug` or `BONDCODE_DEBUG=1` → `<session-dir>/<id>.debug.jsonl` (request/response/tool/decide lines).
+Opt-in decision trace on the main entry: `bondcode --debug` or `BONDCODE_DEBUG=1` → `<session-dir>/<id>.debug.jsonl`.
 
 ## MCP
 
-stdio servers only. CLI helpers: `bondcode mcp connect …`, `mcp list --config`, `mcp reload --config`.  
+stdio servers only. Prefer config (`mcp.enabled` / `mcp.inject_tools` / `servers`). Optional hidden CLI: `bondcode mcp list|connect|disconnect|reload`.  
 Tools inject only when both `mcp.enabled` and `mcp.inject_tools` are true, as `mcp__<server>__<tool>`. Resources/prompts/subscriptions are out of scope.
+
+## CLI surface (product)
+
+| Entry | Role |
+|-------|------|
+| `bondcode` | Open the interactive TUI (main product path) |
+| `bondcode config show\|example` | Inspect config |
+| `bondcode headless` | JSON-line stdin/stdout driver (embedding / automation) |
+| Hidden: `session`, `mcp`, slash-equivalent names | Power-user / debug |
+
+Developer-only: hidden `--fake` (fixed local reply, no API key) for smoke tests.
 
 ## Capability boundaries
 
-- **In the main product path**: ReAct loop + core tools + safety + context + session audit + `task` + skills + collaboration tools (default on; set `collaboration.enabled: false` to drop).  
-- **Config-on**: MCP tool injection.  
-- **Default off**: `spawn`.  
+- **Main path**: ReAct loop + core tools + safety + context + session audit + `task` + skills + collaboration tools (default on; set `collaboration.enabled: false` to drop).  
+- **Config-on**: MCP tool injection; memory extract/dream env flags.  
 - **Model I/O**: internal `llm.Client` + Anthropic-compatible HTTP/SSE.  
 - **Skills**: local `SKILL.md` only (no remote marketplace).  
-- **Subagents**: profile-limited tools; same Policy/Confirmer as the parent for real execution.
+- **Subagents**: `task` (sync) + optional collaboration (`agent_task` / team / mailbox). Same Policy/Confirmer as the parent.
 
 ## Config pointers
 

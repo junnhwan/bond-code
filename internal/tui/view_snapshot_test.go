@@ -107,15 +107,6 @@ func TestViewSnapshotStatesFitCommonTerminalSizes(t *testing.T) {
 			absent:  []string{"/ commands", "@ files"},
 		},
 		{
-			name: "palette overlay with toast",
-			model: func() Model {
-				model := NewModel(Config{}).openPalette()
-				return model.pushToast("snapshot toast", toastInfo)
-			},
-			present: []string{"Command Palette", "snapshot toast"},
-			absent:  nil,
-		},
-		{
 			name: "long output collapsed",
 			model: func() Model {
 				model := NewModel(Config{})

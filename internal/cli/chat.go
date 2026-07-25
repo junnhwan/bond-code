@@ -14,104 +14,13 @@ import (
 	"github.com/junnhwan/bond-code/internal/command"
 	commandbuiltin "github.com/junnhwan/bond-code/internal/command/builtin"
 	"github.com/junnhwan/bond-code/internal/command/custom"
-	"github.com/junnhwan/bond-code/internal/contextx"
 	"github.com/junnhwan/bond-code/internal/observe"
 	"github.com/junnhwan/bond-code/internal/safety"
 	"github.com/junnhwan/bond-code/internal/session"
-	"github.com/junnhwan/bond-code/internal/terminal"
 	"github.com/junnhwan/bond-code/internal/tui"
-
-	"github.com/spf13/cobra"
 )
 
 type bootstrapFunc func(app.Options) (*app.App, error)
-
-func newChatCommandWithBootstrapAndTUI(bootstrap bootstrapFunc, tuiRunner tuiRunnerFunc) *cobra.Command {
-	var configPath string
-	var fake bool
-	var yes bool
-	var once bool
-	var resume string
-	var debugLevel string
-	var permissionModeFlag string
-	var enableBypass bool
-	cmd := &cobra.Command{
-		Use:   "chat [prompt]",
-		Short: "Open the TUI chat workspace",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var mode safety.PermissionMode
-			if strings.TrimSpace(permissionModeFlag) != "" {
-				var err error
-				mode, err = safety.ParsePermissionMode(permissionModeFlag)
-				if err != nil {
-					return err
-				}
-			}
-			if mode == safety.ModeBypass && !enableBypass {
-				return fmt.Errorf("bypass mode requires explicit --enable-bypass acknowledgement; alternatively configure both safety.permission_mode and safety.enable_bypass")
-			}
-			prompt := strings.Join(args, " ")
-			tuiMode := !once && prompt == ""
-			confirmer := safety.Confirmer(terminal.NewConfirmer(cmd.InOrStdin(), cmd.OutOrStdout()))
-			tuiConfirmer := newTUIConfirmer()
-			tuiQuestioner := newTUIQuestioner()
-			if tuiMode {
-				confirmer = tuiConfirmer
-			}
-			opts := app.Options{
-				ConfigPath:      configPath,
-				UseFakeLLM:      fake,
-				AutoYes:         yes,
-				Confirmer:       confirmer,
-				ResumeSessionID: resume,
-				Debug:           parseDebugVerbose(debugLevel),
-				PermissionMode:  mode,
-				EnableBypass:    enableBypass,
-			}
-			if tuiMode {
-				opts.Questioner = tuiQuestioner
-			}
-			application, err := bootstrap(opts)
-			if err != nil {
-				return err
-			}
-			defer application.Close()
-			if tuiMode {
-				return tuiRunner(cmd.Context(), application)
-			}
-			if prompt == "" {
-				return fmt.Errorf("--once requires a prompt")
-			}
-			if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
-				output, err := runOnceSlashCommand(cmd.Context(), application, prompt)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), output)
-				return nil
-			}
-			wd, _ := os.Getwd()
-			prompt = contextx.ExpandPathMentions(prompt, wd)
-			result, err := application.Chat(cmd.Context(), prompt)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), result.FinalAnswer)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&configPath, "config", "", "path to config YAML")
-	cmd.Flags().BoolVar(&fake, "fake", false, "use fake local LLM for tests and demos")
-	cmd.Flags().BoolVar(&yes, "yes", false, "auto-approve low and medium risk tool calls")
-	cmd.Flags().BoolVar(&once, "once", false, "run one non-interactive prompt and exit")
-	_ = cmd.Flags().MarkHidden("once")
-	cmd.Flags().StringVar(&resume, "resume", "", "resume a previous conversation by id")
-	cmd.Flags().StringVar(&debugLevel, "debug", "", "enable debug trace at <data-dir>/<id>.debug.jsonl ('', 'default', or 'full'); BONDCODE_DEBUG env is equivalent")
-	cmd.Flags().StringVar(&permissionModeFlag, "permission-mode", "", "permission mode: default, accept-edits, plan, or bypass")
-	cmd.Flags().BoolVar(&enableBypass, "enable-bypass", false, "explicitly acknowledge constrained bypass mode (blocked/high-risk safeguards remain)")
-	return cmd
-}
 
 // parseDebugVerbose resolves the --debug flag (falling back to BONDCODE_DEBUG)
 // into an observe.Verbose level. Empty/off/0/false -> 0 (off); full/2 -> full;
@@ -137,34 +46,6 @@ func newTUIConfirmer() *tui.Confirmer {
 
 func newTUIQuestioner() *tui.Questioner {
 	return tui.NewQuestioner()
-}
-
-func runOnceSlashCommand(ctx context.Context, application *app.App, prompt string) (string, error) {
-	registry := command.NewRegistry()
-	if err := commandbuiltin.RegisterAll(registry); err != nil {
-		return "", err
-	}
-	name, args := parseCLISlash(prompt)
-	if name == "" {
-		return "", fmt.Errorf("slash command is empty")
-	}
-	cmdDef, ok := registry.Get(name)
-	if !ok {
-		return "", fmt.Errorf("unknown command: /%s", name)
-	}
-	result, err := cmdDef.Run(ctx, commandEnvForApp(application), args)
-	if err != nil {
-		return "", err
-	}
-	return result.Output, nil
-}
-
-func parseCLISlash(input string) (string, []string) {
-	fields := strings.Fields(strings.TrimPrefix(strings.TrimSpace(input), "/"))
-	if len(fields) == 0 {
-		return "", nil
-	}
-	return fields[0], fields[1:]
 }
 
 func commandEnvForApp(application *app.App) command.Env {

@@ -109,7 +109,6 @@ func (m Model) syncPendingQuestion() Model {
 	}
 	q := m.questioner.PendingQuestion()
 	m.question = &q
-	m.leaderPending = false
 	m = m.closeHistoryOverlay()
 	if m.composer.Suggestions != nil {
 		m.composer.Suggestions.Hide()

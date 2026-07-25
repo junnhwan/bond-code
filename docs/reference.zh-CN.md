@@ -6,7 +6,7 @@
 
 ## TUI（简）
 
-`bondcode` 默认进入 TUI（`bondcode chat` 为兼容别名）。
+`bondcode` 默认进入 TUI。
 
 布局：**transcript** → **turn status**（忙碌时）→ **`❯` 输入框**（model · mode · ctx · permission）→ **快捷键提示条**。会话、权限、状态、diff、MCP、skills 等按需用 overlay 或 slash 打开，无常驻侧栏。
 
@@ -33,7 +33,7 @@
 | `Home` / `End` | 到 transcript 顶 / 底 |
 | `@path` / `@path:42-60` | 路径提及，提交前展开文件上下文 |
 
-无 command palette（`Ctrl+P`）或 leader 键；用 slash 或 overlay。
+会话、权限、状态等用 slash（输入 `/`）或 overlay 打开。
 
 ### Slash 命令
 
@@ -82,7 +82,7 @@
 | `mailbox_*` | `collaboration.enabled`（默认开） |
 | `mcp__<server>__<tool>` | `mcp.enabled` **且** `mcp.inject_tools` |
 
-`spawn` 仅在 `subagent.enable_spawn` 时注册。Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `skills.root`）。
+Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `skills.root`）。
 
 ### 委派怎么选
 
@@ -115,14 +115,14 @@
 
 ### 权限模式
 
-`--permission-mode default|accept-edits|plan|bypass`（TUI：`/permissions`）。
+在 TUI 用 `/permissions [mode]` 切换，或在配置里写 `safety.permission_mode`。
 
 | 模式 | 行为 |
 |------|------|
 | `default` | 标准策略 |
 | `accept-edits` | 自动接受普通文件编辑 |
 | `plan` | 阻止写/执行类工具，偏规划 |
-| `bypass` | 仅当 `safety.enable_bypass` 或可信 `--enable-bypass` |
+| `bypass` | 仅当配置里 `safety.enable_bypass` 也为 true |
 
 模式切换会先写入 session JSONL 再生效。
 
@@ -134,32 +134,44 @@
 
 ## Session 与 debug
 
+日常会话在 TUI（`/resume`、session manager overlay）。可选 power-user CLI（`bondcode --help` 不展示，但仍可按名调用）：
+
 ```powershell
-go run ./cmd/bondcode session list
-go run ./cmd/bondcode session show <id>
-go run ./cmd/bondcode session export <id> <path>
-go run ./cmd/bondcode session import <id> <path>
-go run ./cmd/bondcode session fork <src> <dst>
-go run ./cmd/bondcode session delete <id>
-go run ./cmd/bondcode session trace [id]           # 省略 id = 最近一次
-go run ./cmd/bondcode session trace [id] --debug   # 叠加模型决策层
+bondcode session list
+bondcode session show <id>
+bondcode session export <id> <path>
+bondcode session import <id> <path>
+bondcode session fork <src> <dst>
+bondcode session delete <id>
+bondcode session trace [id]           # 省略 id = 最近一次
+bondcode session trace [id] --debug   # 叠加模型决策层
 ```
 
-可选决策 trace：`--debug` 或 `BONDCODE_DEBUG=1` → `<session-dir>/<id>.debug.jsonl`。
+主入口决策 trace：`bondcode --debug` 或 `BONDCODE_DEBUG=1` → `<session-dir>/<id>.debug.jsonl`。
 
 ## MCP
 
-仅 stdio server。CLI：`bondcode mcp connect …`、`mcp list --config`、`mcp reload --config`。  
+仅 stdio server。优先用配置（`mcp.enabled` / `mcp.inject_tools` / `servers`）。可选隐藏 CLI：`bondcode mcp list|connect|disconnect|reload`。  
 仅当 `mcp.enabled` 与 `mcp.inject_tools` 同时为真时注入工具，命名 `mcp__<server>__<tool>`。resources / prompts / subscriptions 不在当前范围。
+
+## CLI 表面（产品）
+
+| 入口 | 作用 |
+|------|------|
+| `bondcode` | 打开交互式 TUI（主路径） |
+| `bondcode config show\|example` | 查看配置 |
+| `bondcode headless` | stdin/stdout JSON-line（嵌入 / 自动化） |
+| 隐藏：`session`、`mcp`、slash 同名命令 | 调试 / 进阶 |
+
+开发用：隐藏 flag `--fake`（固定假回复、无需 API Key，仅烟雾测试）。
 
 ## 能力边界
 
 - **主路径**：ReAct 循环 + 核心工具 + 安全 + 上下文 + session 审计 + `task` + skills + 协作工具（默认开；`collaboration.enabled: false` 可关）  
-- **配置开启**：MCP 工具注入  
-- **默认关**：`spawn`  
+- **配置开启**：MCP 工具注入；memory extract/dream 等环境开关  
 - **模型 I/O**：内部 `llm.Client` + Anthropic-compatible HTTP/SSE  
 - **Skills**：仅本地 `SKILL.md`（无远端市场）  
-- **子 agent**：按 profile 限工具；真实执行复用同一套 Policy/Confirmer  
+- **子 agent**：`task`（同步）+ 可选协作（`agent_task` / team / mailbox）。与主 agent 同一套 Policy/Confirmer  
 
 ## 配置指针
 
