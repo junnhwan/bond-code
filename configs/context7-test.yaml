@@ -1,0 +1,16 @@
+# MCP 集成测试配置 (context7)
+# model 走 env，这里只配 MCP —— bootstrap 的 applyEnv 会用 BONDCODE_BASE_URL/API_KEY/MODEL 兜底。
+# 用法:
+#   export BONDCODE_BASE_URL="https://open.bigmodel.cn/api/anthropic"
+#   export BONDCODE_API_KEY="<你的key>"
+#   export BONDCODE_MODEL="glm-5.1"
+#   go run ./cmd/bondcode --config configs/context7-test.yaml
+mcp:
+  enabled: true
+  inject_tools: true
+  namespace_tools: true
+  servers:
+    - name: context7
+      command: npx
+      args: ["-y", "@upstash/context7-mcp"]
+      enabled: true

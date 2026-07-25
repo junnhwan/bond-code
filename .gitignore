@@ -1,0 +1,34 @@
+.env
+*.local
+*.log
+# Compiled binaries (bondcode, bondbench, …) — build artifacts, never commit
+*.exe
+/sessions/**
+!/sessions/
+!/sessions/.gitkeep
+# Nested "sessions/" runtime dirs (e.g. internal/app/sessions/) — same data as
+# the root sessions/ above, created if the binary runs from a subdirectory.
+**/sessions/
+# Home-resolution fallback: bondcodeHome() returns ".bondcode" (relative) when
+# os.UserHomeDir() fails, which would write state into the cwd. Cover it too.
+.bondcode/
+.superpowers/
+.worktrees/
+.wrangler/
+
+# Playwright / browser automation dumps (local only)
+.playwright-mcp/
+
+# Opt-in agent decision traces (--debug / BONDCODE_DEBUG)
+*.debug.jsonl
+
+# Local session export dumps at repo root
+/bondcode-*.txt
+
+# Claude Code local config (per-machine, not project state)
+.claude/
+
+# Local agent/docs helpers and project config (not published in this repo)
+/AGENTS.md
+/CLAUDE.md
+/bondcode.yaml

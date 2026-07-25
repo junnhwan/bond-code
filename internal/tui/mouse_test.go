@@ -1,0 +1,246 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/junnhwan/bond-code/internal/agent"
+	"github.com/junnhwan/bond-code/internal/ask"
+)
+
+func TestMouseClickFocusesComposerAndScrollback(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(80, 28)
+	m.timeline = m.timeline.StartUserTurn("hello")
+	m.timeline = m.timeline.AppendBlock(BlockAssistant, "agent", "world")
+	m.focus = FocusScrollback
+
+	composerY := -1
+	for y := 0; y < m.height; y++ {
+		if m.resolveMouseHit(5, y).kind == mouseHitComposer {
+			composerY = y
+			break
+		}
+	}
+	if composerY < 0 {
+		t.Fatal("composer hit band not found")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: 5, Y: composerY,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	if next.focus != FocusComposer {
+		t.Fatalf("expected click on composer to focus composer, focus=%s", next.focus)
+	}
+
+	next, _ = next.handleMouseMsg(tea.MouseMsg{
+		X: 5, Y: 2,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	// Mouse click on the transcript keeps the composer focused so the prompt
+	// does not grey out (BlurredStyle). Keyboard Tab still enters scrollback.
+	if next.focus != FocusComposer {
+		t.Fatalf("expected click on scrollback to keep composer focus, focus=%s", next.focus)
+	}
+}
+
+func TestMouseHoverComposerSetsHoverState(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(80, 28)
+	m.timeline = m.timeline.StartUserTurn("hi")
+	composerY := -1
+	for y := 0; y < m.height; y++ {
+		if m.resolveMouseHit(3, y).kind == mouseHitComposer {
+			composerY = y
+			break
+		}
+	}
+	if composerY < 0 {
+		t.Fatal("composer hit band not found")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: 3, Y: composerY,
+		Action: tea.MouseActionMotion,
+		Button: tea.MouseButtonNone,
+	})
+	if next.hover.kind != mouseHitComposer {
+		t.Fatalf("expected composer hover, got kind=%d", next.hover.kind)
+	}
+	_ = next.View() // must not panic with hover styling
+}
+
+func TestWelcomeMenuHitAndClick(t *testing.T) {
+	m := NewModel(Config{
+		MouseCapture: true,
+		Status:       Status{ProjectRoot: "bond-code", Model: "fake"},
+	}).SetSize(80, 30)
+	if len(m.timeline.Turns) != 0 {
+		t.Fatal("expected empty timeline")
+	}
+
+	// Locate welcome menu hits by scanning.
+	var menuHits []mouseHit
+	var menuYs []int
+	for y := 0; y < m.height; y++ {
+		hit := m.resolveMouseHit(20, y)
+		if hit.kind == mouseHitWelcomeMenu {
+			menuHits = append(menuHits, hit)
+			menuYs = append(menuYs, y)
+		}
+	}
+	if len(menuHits) < 3 {
+		// Geometry fallback: pure welcome rows must still map labels.
+		dock := m.measureBottomDock()
+		layout := CalculateLayout(m.width, m.height, dock.reservedHeight())
+		rows := welcomeMenuRowYs(WelcomeChromeInput{
+			Width: layout.TimelineW, Height: layout.TimelineH,
+			Project: "bond-code", Version: "v1.0.0",
+		})
+		if len(rows) < 3 {
+			t.Fatalf("expected 3 menu hits or rows, hits=%d rows=%v", len(menuHits), rows)
+		}
+		// Absolute Y = body start (0) + row
+		for _, row := range rows {
+			hit := m.resolveMouseHit(20, row)
+			if hit.kind == mouseHitWelcomeMenu {
+				menuHits = append(menuHits, hit)
+				menuYs = append(menuYs, row)
+			}
+		}
+	}
+	if len(menuHits) == 0 {
+		t.Fatal("no welcome menu hits resolved")
+	}
+
+	// Hover second item if present.
+	idx := 0
+	y := menuYs[0]
+	if len(menuHits) > 1 {
+		idx = 1
+		y = menuYs[1]
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: 20, Y: y,
+		Action: tea.MouseActionMotion,
+		Button: tea.MouseButtonNone,
+	})
+	if next.hover.kind != mouseHitWelcomeMenu {
+		t.Fatalf("expected welcome menu hover, got %d", next.hover.kind)
+	}
+	if next.welcomeMenuActive != idx && next.hover.index != idx {
+		t.Fatalf("hover index want %d active=%d hover=%d", idx, next.welcomeMenuActive, next.hover.index)
+	}
+
+	// Click fires runCommand path (unknown without registry → timeline block or no panic).
+	next, _ = next.handleMouseMsg(tea.MouseMsg{
+		X: 20, Y: y,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	_ = next.View()
+}
+
+func TestPermissionOptionIndexAt(t *testing.T) {
+	panel := renderPermissionPanel(&agent.Event{
+		Type:     agent.EventToolConfirmationRequested,
+		ToolName: "run_command",
+		Message:  "ls",
+		Risk:     "medium",
+	}, choiceOnce, false, "", true, 80, 0)
+	h := renderedHeight(panel)
+	for i := 0; i < 3; i++ {
+		y := h - 1 - 3 + i
+		idx, ok := permissionOptionIndexAt(panel, y, false, true)
+		if !ok || idx != i {
+			t.Fatalf("opt %d: ok=%v idx=%d\n%s", i, ok, idx, panel)
+		}
+	}
+}
+
+func TestPermissionOptionClickClearsPending(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(80, 28)
+	m.agent.Pending = &agent.Event{
+		Type:     agent.EventToolConfirmationRequested,
+		ToolName: "run_command",
+		Message:  "echo hi",
+		Risk:     "medium",
+	}
+	m.agent.ConfirmChoice = choiceReject
+
+	optY := -1
+	for y := 0; y < m.height; y++ {
+		hit := m.resolveMouseHit(4, y)
+		if hit.kind == mouseHitPermissionOption && hit.index == 0 {
+			optY = y
+			break
+		}
+	}
+	if optY < 0 {
+		t.Fatal("permission option hit not found")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: 4, Y: optY,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	if next.agent.Pending != nil {
+		t.Fatal("expected permission click to clear Pending via confirm path")
+	}
+}
+
+func TestQuestionOptionIndexAt(t *testing.T) {
+	q := &ask.Question{
+		Prompt: "Pick one",
+		Options: []ask.Option{
+			{Label: "Alpha"},
+			{Label: "Beta"},
+			{Label: "Gamma"},
+		},
+	}
+	panel := renderQuestionPanel(q, 0, nil, 80)
+	lines := strings.Split(panel, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "Beta") {
+			idx, ok := questionOptionIndexAt(panel, i, q)
+			if !ok || idx != 1 {
+				t.Fatalf("Beta: ok=%v idx=%d line=%q", ok, idx, line)
+			}
+			return
+		}
+	}
+	t.Fatalf("Beta not in panel:\n%s", panel)
+}
+
+func TestWelcomeMenuRowsMatchRenderedLabels(t *testing.T) {
+	in := WelcomeChromeInput{Width: 80, Height: 24, Project: "demo", Version: "v1.0.0", ActiveMenu: 1}
+	lines, rows := buildWelcomeChromeLines(in)
+	items := welcomeMenuItems()
+	if len(rows) != len(items) {
+		t.Fatalf("rows=%v items=%d", rows, len(items))
+	}
+	for i, row := range rows {
+		if row < 0 || row >= len(lines) {
+			t.Fatalf("row %d out of range", row)
+		}
+		if !strings.Contains(lines[row], items[i].Label) {
+			t.Fatalf("row %d %q missing label %q", row, lines[row], items[i].Label)
+		}
+	}
+}
+
+func TestMouseWheelStillScrolls(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(100, 30)
+	for i := 0; i < 6; i++ {
+		m.timeline = m.timeline.StartUserTurn(fmt.Sprintf("user %d", i))
+		m.timeline = m.timeline.AppendBlock(BlockAssistant, "agent", strings.Repeat("reply line\n", 6))
+	}
+	updated, _ := m.handleMouseMsg(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelUp,
+	})
+	if updated.scroll == 0 {
+		t.Fatal("wheel-up did not scroll")
+	}
+}

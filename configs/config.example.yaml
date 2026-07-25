@@ -1,0 +1,137 @@
+model:
+  provider: openai-compatible
+  base_url: https://api.deepseek.com/v1
+  api_key_env: BONDCODE_API_KEY
+  model: deepseek-chat
+  temperature: 0.2
+  max_tokens: 4096
+  # Maximum network-idle time for a streaming response. Values <= 0 use the
+  # 120-second default; values above 86400 are capped at 24 hours.
+  stream_idle_timeout_seconds: 120
+  # Extended thinking / reasoning stream. Works on Anthropic-protocol providers
+  # that support it (e.g. glm-5.x via open.bigmodel.cn/api/anthropic). The TUI
+  # shows a folded preview of the reasoning. temperature is omitted in this
+  # mode (protocol requirement). Disabled by default.
+  thinking:
+    enabled: false
+    budget_tokens: 4096
+  # Transport-layer resilience for the LLM client: bounded exponential-backoff
+  # retry on 429 / 5xx / network errors, plus fallback to backup models after
+  # sustained overload. Defaults are applied when this section is absent; set
+  # enabled: false to restore fail-fast behavior.
+  retry:
+    enabled: true
+    max_attempts: 3
+    base_backoff_ms: 1000
+    max_backoff_ms: 8000
+    overload_fallback_threshold: 2
+    # fallback_models:
+    #   - glm-5.1-flash
+
+# Per-project state root. Defaults to ~/.bondcode/projects/<encoded-cwd>
+# (mirrors Claude Code's ~/.claude/projects): session audit logs, memory, todos
+# and trust state live off the working dir instead of polluting it. Set
+# BONDCODE_HOME to relocate the whole tree. Override `dir` only for project-local
+# sessions (dir: sessions) or a custom absolute path.
+session:
+  # dir: sessions
+
+safety:
+  require_confirmation: true
+  blocked_commands:
+    - "rm -rf /"
+    - "git push --force"
+    - "curl | sh"
+
+agent:
+  max_steps: 200
+  max_repeated_tool_calls: 3
+  max_tool_calls_per_step: 8
+  # Text-degeneration circuit breaker: trips when a single model response
+  # degenerates into repeated output (a stuck token replayed hundreds of
+  # times, or a phrase-level loop), cancelling the stream and recovering
+  # instead of streaming garbage for minutes. 0 keeps the built-in default.
+  max_repeated_text_chunks: 16
+  max_repeated_text_substrings: 3
+
+context:
+  enabled: true
+  max_tokens: 100000
+  # Pi-style compaction: trigger when usage > max_tokens - reserve_tokens.
+  reserve_tokens: 16384
+  keep_recent_tokens: 20000
+  auto_compact: true
+  # Claude Code-style tool-result governance (per-turn, deterministic).
+  micro_compact_keep_recent: 6
+  micro_compact_min_chars: 500
+  tool_result_budget: 8000
+  tool_result_preview_chars: 2000
+  tool_result_turn_budget: 50000
+
+# Claude Code-style file-based auto-memory (memdir):
+#   <data-dir>/memory/MEMORY.md          # index (one-line hooks)
+#   <data-dir>/memory/<topic>.md         # topic files with frontmatter
+# Types: user | feedback | project | reference
+memory:
+  enabled: true
+  max_chars: 4000
+  max_relevant: 5
+  # auto_extract: false   # or BONDCODE_MEMORY_EXTRACT=1
+  # llm_select: false     # or BONDCODE_MEMORY_LLM_SELECT=1
+  # dream_enabled: false  # or BONDCODE_MEMORY_DREAM=1
+  # dream_threshold: 40
+
+
+# Session todo checklist (Claude Code TodoWrite style). When inject_tasks is
+# true, the current list is injected into each user turn as Active Tasks.
+planning:
+  enabled: true
+  inject_tasks: true
+
+subagent:
+  enabled: true
+  max_children_per_turn: 3
+  max_depth: 1
+  default_timeout_seconds: 600
+  enable_spawn: false
+
+# Multi-Agent collaboration surface (agent_task / team_* / mailbox_* / optional
+# terminal backends). On by default; set enabled: false to drop these tools from
+# the model surface. Synchronous `task` subagent is controlled by
+# `subagent.enabled` above, not this flag.
+collaboration:
+  enabled: true
+
+
+# Model-facing tool surface. Coding primitives: read_file / write_file /
+# edit_file / list_dir / search_text / run_command. Git, go test/build/fmt, and
+# similar workflows use run_command. Memory is memdir-only (memory_save /
+# memory_search). Todos are TodoWrite-only (todo_read / todo_write). core_only
+# remains for config compatibility; it no longer re-enables deleted todo CRUD.
+tools:
+  core_only: true
+
+# Skills (Claude Code-style): name/SKILL.md under BondCode-owned dirs only.
+# Discovery: ~/.bondcode/skills, <project>/.bondcode/skills, optional root.
+# Model surface: single `skill` tool; listing is injected via system-reminder.
+skills:
+  enabled: true
+  # root: /optional/extra/skills   # absolute or project-relative extra dir
+  max_chars: 12000
+  # listing_budget_chars: 8000     # 0 = package default
+
+mcp:
+  enabled: false
+  inject_tools: false
+  namespace_tools: true
+  servers: []
+
+tui:
+  # Mouse tracking (wheel / click). Default true so the wheel scrolls the
+  # transcript. Set false or /mouse off for free drag-select/copy; when on,
+  # most terminals still allow Shift+drag to select (ctrl+shift+m toggles).
+  mouse_capture: true
+  # Assistant body length (chars) above which a streaming block skips the
+  # markdown renderer and appends raw text, so very long streams cannot
+  # stall a frame.
+  streaming_markdown_threshold: 2000
