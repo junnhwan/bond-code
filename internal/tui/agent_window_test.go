@@ -408,7 +408,7 @@ func TestTraceOnlyUnreadAgentIsCountedAndSwitchable(t *testing.T) {
 	}
 
 	status := ansi.Strip(model.agentBarViewForWidth(80))
-	for _, want := range []string{"1 unread", "Ctrl+↑ switch"} {
+	for _, want := range []string{"1 unread", "Ctrl+↑", "click"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("trace-only Agent status missing %q: %q", want, status)
 		}
@@ -420,7 +420,7 @@ func TestTraceOnlyUnreadAgentIsCountedAndSwitchable(t *testing.T) {
 		t.Fatalf("Ctrl+Up did not select trace-only Agent: focus=%q selected=%q", model.focus, model.agentBarSelected)
 	}
 	selected := ansi.Strip(model.agentBarViewForWidth(80))
-	if !strings.Contains(selected, "Agent reviewer") {
+	if !strings.Contains(selected, "reviewer") {
 		t.Fatalf("switcher did not expose trace-only Agent: %q", selected)
 	}
 
@@ -499,7 +499,7 @@ func TestAgentBarCanSelectCoordinator(t *testing.T) {
 	}
 }
 
-func TestAgentBarSwitcherKeepsSelectionVisibleInOneRow(t *testing.T) {
+func TestAgentBarSwitcherKeepsSelectionVisible(t *testing.T) {
 	model := NewModel(Config{})
 	model = model.SetSize(80, 10)
 	model.focus = FocusAgentBar
@@ -511,11 +511,12 @@ func TestAgentBarSwitcherKeepsSelectionVisibleInOneRow(t *testing.T) {
 	model.agentBarSelected = "task-10"
 
 	view := ansi.Strip(model.agentBarViewForWidth(80))
-	if renderedHeight(view) != 1 || strings.Contains(view, "\n") {
-		t.Fatalf("Agent switcher must stay on one row: %q", view)
+	// Multi-line roster is expected; selected agent must still be visible.
+	if !strings.Contains(view, "reviewer-10") {
+		t.Fatalf("selected Agent must remain visible: %q", view)
 	}
-	if !strings.Contains(view, "reviewer-10") || !strings.Contains(view, "running") {
-		t.Fatalf("selected Agent must remain visible with concise state: %q", view)
+	if !strings.Contains(view, "running") {
+		t.Fatalf("selected Agent should show status: %q", view)
 	}
 }
 
@@ -533,22 +534,79 @@ func TestAgentSwitcherCoordinatorRemainsReachableWhenRowsAreCapped(t *testing.T)
 	}
 }
 
-func TestAgentBarSwitcherShowsCoordinatorOrSelectedAgentInOneRow(t *testing.T) {
+func TestAgentBarSwitcherShowsPillsForCoordinatorAndChildren(t *testing.T) {
 	model := NewModel(Config{})
 	model.timeline = model.timeline.StartUserTurn("delegate")
 	model.timeline = model.timeline.UpsertSubagentBlock("task-1", "review", "running", "")
 	model.subagentTraces["task-1"] = &AgentTrace{TaskID: "task-1", AgentType: "reviewer", Status: "running"}
 
+	// Passive (composer): summary strip mentions the child.
 	coordinator := ansi.Strip(model.agentBarViewForWidth(80))
-	if !strings.Contains(coordinator, "Agent Main") || strings.Contains(coordinator, "reviewer") || renderedHeight(coordinator) != 1 {
-		t.Fatalf("base Agent row should show only the coordinator: %q", coordinator)
+	if !strings.Contains(coordinator, "reviewer") || renderedHeight(coordinator) != 1 {
+		t.Fatalf("passive strip should mention child agents: %q", coordinator)
 	}
 
 	model.focus = FocusAgentBar
 	model.agentBarSelected = "task-1"
 	selected := ansi.Strip(model.agentBarViewForWidth(80))
-	if !strings.Contains(selected, "Agent reviewer") || strings.Contains(selected, "Main") || renderedHeight(selected) != 1 {
-		t.Fatalf("focused Agent row should show only the selection: %q", selected)
+	if !strings.Contains(selected, "Main") || !strings.Contains(selected, "reviewer") {
+		t.Fatalf("focused switcher should show Main + children pills/list: %q", selected)
+	}
+	if !strings.Contains(selected, "▸") {
+		t.Fatalf("focused switcher should mark selection: %q", selected)
+	}
+}
+
+func TestAgentWindowEmptyCompletionWarns(t *testing.T) {
+	model := NewModel(Config{}).SetSize(80, 20)
+	model.focus = FocusAgentWindow
+	model.focusedTaskID = "task-1"
+	model.subagentTraces["task-1"] = &AgentTrace{
+		TaskID:      "task-1",
+		AgentType:   "coder",
+		Status:      "completed",
+		FinalAnswer: "I will implement the calculator next.",
+	}
+	lines := model.agentWindowLines(80)
+	joined := ansi.Strip(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "no tool") && !strings.Contains(joined, "plan only") {
+		t.Fatalf("empty completion should warn in agent window:\n%s", joined)
+	}
+	if !strings.Contains(joined, "unverified") && !strings.Contains(joined, "result") {
+		t.Fatalf("empty completion should still show result:\n%s", joined)
+	}
+}
+
+func TestScrollbackEnterOpensSelectedSubagent(t *testing.T) {
+	model := NewModel(Config{}).SetSize(80, 24)
+	model.timeline = model.timeline.StartUserTurn("delegate")
+	model.timeline = model.timeline.UpsertSubagentBlock("task-a", "coder", "running", "")
+	model.timeline = model.timeline.UpsertSubagentBlock("task-b", "reviewer", "running", "")
+	model.subagentTraces["task-a"] = &AgentTrace{TaskID: "task-a", AgentType: "coder", Status: "running"}
+	model.subagentTraces["task-b"] = &AgentTrace{TaskID: "task-b", AgentType: "reviewer", Status: "running"}
+
+	model.focus = FocusScrollback
+	entries := model.scrollEntries()
+	// Find task-a subagent entry.
+	found := -1
+	for i, e := range entries {
+		if e.kind == string(BlockSubagent) {
+			turn := model.timeline.Turns[e.turnIdx]
+			if e.blockIdx >= 0 && e.blockIdx < len(turn.Blocks) && turn.Blocks[e.blockIdx].ID == "task-a" {
+				found = i
+				break
+			}
+		}
+	}
+	if found < 0 {
+		t.Fatalf("expected task-a subagent entry in scrollEntries: %+v", entries)
+	}
+	model.scrollSel = found
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.focus != FocusAgentWindow || model.focusedTaskID != "task-a" {
+		t.Fatalf("Enter on selected subagent should open its window, focus=%q task=%q", model.focus, model.focusedTaskID)
 	}
 }
 
@@ -564,11 +622,8 @@ func TestAgentWindowKeepsPersistentRowForTerminalConversation(t *testing.T) {
 	}
 
 	view := ansi.Strip(model.View())
-	if !strings.Contains(view, "Agent reviewer") || !strings.Contains(view, "completed") {
+	if !strings.Contains(view, "reviewer") || !strings.Contains(view, "completed") {
 		t.Fatalf("Agent window should retain its persistent status row:\n%s", view)
-	}
-	if strings.Count(view, "Agent reviewer") != 1 {
-		t.Fatalf("Agent window should render exactly one persistent row:\n%s", view)
 	}
 }
 

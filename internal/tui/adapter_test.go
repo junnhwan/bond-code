@@ -302,6 +302,49 @@ func TestAgentErrorHumanizesCommonModelFailures(t *testing.T) {
 	}
 }
 
+func TestSubagentFailedRateLimitToasts(t *testing.T) {
+	model := NewModel(Config{})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type:       agent.EventSubagentFailed,
+		ToolCallID: "task-r",
+		ToolName:   "coder",
+		Error:      "model API returned HTTP 429: rate limit exceeded",
+	})
+	if len(model.toasts) == 0 {
+		t.Fatal("expected rate-limit toast for failed subagent")
+	}
+	if !strings.Contains(strings.ToLower(model.toasts[len(model.toasts)-1].message), "rate limited") {
+		t.Fatalf("toast = %#v", model.toasts[len(model.toasts)-1])
+	}
+}
+
+func TestSubagentEmptyCompletionToasts(t *testing.T) {
+	model := NewModel(Config{})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type:       agent.EventSubagentStarted,
+		ToolCallID: "task-e",
+		ToolName:   "coder",
+		Message:    "go",
+	})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type:       agent.EventSubagentFinished,
+		ToolCallID: "task-e",
+		ToolName:   "coder",
+		Output:     "I would write the files.",
+		Message:    "I would write the files.",
+	})
+	found := false
+	for _, toast := range model.toasts {
+		if strings.Contains(toast.message, "no tools") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected empty-completion toast, toasts=%#v", model.toasts)
+	}
+}
+
 func mustTime(value string) time.Time {
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {

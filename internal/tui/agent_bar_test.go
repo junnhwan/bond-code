@@ -43,44 +43,61 @@ func TestLatestToolNameEmptyTrace(t *testing.T) {
 	}
 }
 
-func TestAgentBarPersistsWithoutChildAgents(t *testing.T) {
+func TestAgentBarHiddenWithoutChildAgents(t *testing.T) {
 	model := NewModel(Config{}).SetSize(80, 24)
-	view := ansi.Strip(model.agentBarViewForWidth(80))
-
-	if got := renderedHeight(view); got != 1 {
-		t.Fatalf("persistent Agent row height = %d, want 1: %q", got, view)
+	if got := model.agentBarView(); got != "" {
+		t.Fatalf("no-child Agent strip should be empty, got %q", got)
 	}
-	for _, want := range []string{"Agent Main", "0 unread"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("persistent Agent row missing %q: %q", want, view)
-		}
+	// forWidth still paints a minimal coordinator row for focused tests.
+	view := ansi.Strip(model.agentBarViewForWidth(80))
+	if !strings.Contains(view, "Agent Main") && !strings.Contains(view, "Main") {
+		t.Fatalf("forWidth coordinator fallback missing Main: %q", view)
 	}
 }
 
-func TestAgentBarShowsActiveAgentTotalUnreadAndTerminalState(t *testing.T) {
+func TestAgentPassiveStripShowsWhenChildrenExist(t *testing.T) {
+	model := NewModel(Config{}).SetSize(100, 24)
+	model.subagentTraces["task-active"] = &AgentTrace{
+		TaskID:    "task-active",
+		AgentType: "reviewer",
+		Status:    "running",
+		Blocks:    []Block{{Tool: &ToolBlock{Name: "list_dir", Status: ToolRunning}}},
+		Unread:    true,
+	}
+	model.focus = FocusComposer
+
+	view := ansi.Strip(model.agentBarView())
+	for _, want := range []string{"Agents", "reviewer", "unread", "Ctrl+↑", "click"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("passive strip missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "\n") {
+		t.Fatalf("passive strip must stay one row: %q", view)
+	}
+}
+
+func TestAgentBarPillsShowMultipleAgents(t *testing.T) {
 	model := NewModel(Config{}).SetSize(100, 24)
 	model.focus = FocusAgentWindow
 	model.focusedTaskID = "task-active"
-	model.subagentTraces["task-old"] = &AgentTrace{TaskID: "task-old", Unread: true}
+	model.subagentTraces["task-old"] = &AgentTrace{TaskID: "task-old", AgentType: "coder", Status: "completed", Unread: true}
 	model.subagentTraces["task-active"] = &AgentTrace{
 		TaskID:    "task-active",
 		AgentType: "reviewer",
 		Status:    "completed",
 	}
-	model.subagentTraces["task-new"] = &AgentTrace{TaskID: "task-new", Unread: true}
+	model.subagentTraces["task-new"] = &AgentTrace{TaskID: "task-new", AgentType: "research", Status: "running", Unread: true}
 
 	view := ansi.Strip(model.agentBarViewForWidth(100))
-	for _, want := range []string{"Agent reviewer", "completed", "2 unread"} {
+	for _, want := range []string{"Main", "reviewer", "coder", "research"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("active Agent row missing %q: %q", want, view)
+			t.Fatalf("pills row missing %q: %q", want, view)
 		}
-	}
-	if strings.Contains(view, "task-old") || strings.Contains(view, "task-new") {
-		t.Fatalf("concise Agent row should show only the active identity: %q", view)
 	}
 }
 
-func TestAgentBarFitsWidthAndDegradesToMinimalActiveLabel(t *testing.T) {
+func TestAgentBarFitsWidthAndDegrades(t *testing.T) {
 	model := NewModel(Config{}).SetSize(100, 24)
 	model.focus = FocusAgentWindow
 	model.focusedTaskID = "task-active"
@@ -89,12 +106,13 @@ func TestAgentBarFitsWidthAndDegradesToMinimalActiveLabel(t *testing.T) {
 		AgentType: "qa",
 		Status:    "running",
 	}
-	model.subagentTraces["task-unread"] = &AgentTrace{TaskID: "task-unread", Unread: true}
+	model.subagentTraces["task-unread"] = &AgentTrace{TaskID: "task-unread", AgentType: "coder", Unread: true}
 
 	for _, width := range []int{100, 28, 12, 8, 4, 1} {
 		view := model.agentBarViewForWidth(width)
+		// Window focus: pills only (single visual row).
 		if strings.Contains(view, "\n") || renderedHeight(view) != 1 {
-			t.Fatalf("Agent row at width %d must be exactly one row: %q", width, ansi.Strip(view))
+			t.Fatalf("Agent pills at width %d must be exactly one row: %q", width, ansi.Strip(view))
 		}
 		if got := lipgloss.Width(view); got > width {
 			t.Fatalf("Agent row width = %d, want <= %d: %q", got, width, ansi.Strip(view))
@@ -102,11 +120,8 @@ func TestAgentBarFitsWidthAndDegradesToMinimalActiveLabel(t *testing.T) {
 	}
 
 	narrow := ansi.Strip(model.agentBarViewForWidth(12))
-	if !strings.Contains(narrow, "Agent qa") {
-		t.Fatalf("narrow Agent row should retain the minimal active-Agent label: %q", narrow)
-	}
-	if strings.Contains(narrow, "running") || strings.Contains(narrow, "unread") {
-		t.Fatalf("narrow Agent row should drop secondary status: %q", narrow)
+	if !strings.Contains(narrow, "qa") && !strings.Contains(narrow, "⬡") {
+		t.Fatalf("narrow Agent row should retain some active label: %q", narrow)
 	}
 }
 
@@ -130,5 +145,60 @@ func TestAgentBarRenderingLeavesStreamingPlanesUntouched(t *testing.T) {
 	}
 	if model.timeline.Version != version || model.subagentTraces["task-active"].LiveStream != stream || stream.body != "SECRET_LIVE_BODY" {
 		t.Fatalf("Agent row rendering mutated timeline/live state: version=%d stream=%#v", model.timeline.Version, model.subagentTraces["task-active"].LiveStream)
+	}
+}
+
+func TestAgentSwitcherListShowsRosterAndActivity(t *testing.T) {
+	model := NewModel(Config{}).SetSize(80, 24)
+	model.focus = FocusAgentBar
+	model.agentBarSelected = "task-1"
+	model.subagentTraces["task-1"] = &AgentTrace{
+		TaskID:    "task-1",
+		AgentType: "coder",
+		Status:    "running",
+		Blocks:    []Block{{Tool: &ToolBlock{Name: "write_file", Status: ToolRunning}}},
+	}
+	model.subagentTraces["task-2"] = &AgentTrace{
+		TaskID:    "task-2",
+		AgentType: "reviewer",
+		Status:    "completed",
+		// empty completion
+	}
+
+	view := ansi.Strip(model.agentBarViewForWidth(80))
+	if renderedHeight(view) < 3 {
+		t.Fatalf("switcher should be multi-line (pills+list+hints), got %d: %q", renderedHeight(view), view)
+	}
+	for _, want := range []string{"Main", "coder", "reviewer", "write_file", "no tools", "enter open"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("switcher list missing %q: %q", want, view)
+		}
+	}
+	if !strings.Contains(view, "▸") {
+		t.Fatalf("selected row should show cursor: %q", view)
+	}
+}
+
+func TestAgentActivityTextEmptyCompletion(t *testing.T) {
+	model := NewModel(Config{})
+	model.subagentTraces["t1"] = &AgentTrace{TaskID: "t1", Status: "completed"}
+	got := model.agentActivityText("t1", "completed", "")
+	if !strings.Contains(got, "empty") && !strings.Contains(got, "no tools") {
+		t.Fatalf("empty completion activity = %q", got)
+	}
+}
+
+func TestAgentPassiveStripShowsOutcomeCounts(t *testing.T) {
+	model := NewModel(Config{}).SetSize(100, 24)
+	model.subagentTraces["a"] = &AgentTrace{TaskID: "a", AgentType: "coder", Status: "running"}
+	model.subagentTraces["b"] = &AgentTrace{TaskID: "b", AgentType: "coder", Status: "failed"}
+	model.subagentTraces["c"] = &AgentTrace{TaskID: "c", AgentType: "reviewer", Status: "completed"} // empty
+	model.traceMembershipVersion++
+
+	view := ansi.Strip(model.agentBarViewForWidth(100))
+	for _, want := range []string{"running", "failed", "empty"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("passive strip missing %q: %q", want, view)
+		}
 	}
 }

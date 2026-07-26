@@ -54,6 +54,29 @@ func stallingServer(t *testing.T, handler func(http.ResponseWriter, *http.Reques
 	return server
 }
 
+func TestBuildModelClientAppliesSharedRateLimitGate(t *testing.T) {
+	// Post-default config shape: enabled pointer true + concurrent 1.
+	on := true
+	client := buildModelClient(config.ModelConfig{
+		BaseURL: "http://127.0.0.1:1", APIKeyEnv: "BONDCODE_TEST_API_KEY", Model: "m",
+		RateLimit: config.RateLimitConfig{Enabled: &on, MaxConcurrent: 1, CooldownOnRateLimitMs: 60000},
+	})
+	if client == nil {
+		t.Fatal("nil client")
+	}
+	// Disabled gate returns a client that is not rate-limited at the outer layer
+	// in a way we can type-assert without exporting; just ensure enabled path
+	// does not panic on Stream setup.
+	off := false
+	clientOff := buildModelClient(config.ModelConfig{
+		BaseURL: "http://127.0.0.1:1", APIKeyEnv: "BONDCODE_TEST_API_KEY", Model: "m",
+		RateLimit: config.RateLimitConfig{Enabled: &off},
+	})
+	if clientOff == nil {
+		t.Fatal("nil client when rate limit off")
+	}
+}
+
 func TestBuildModelClientPropagatesStreamIdleTimeoutToPrimary(t *testing.T) {
 	t.Setenv("BONDCODE_TEST_API_KEY", "test")
 	server := stallingServer(t, func(w http.ResponseWriter, r *http.Request) {

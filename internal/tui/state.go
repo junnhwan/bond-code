@@ -165,6 +165,10 @@ type AgentTrace struct {
 	Unread      bool
 	Generation  uint64
 	LiveStream  *liveStreamState
+	// StartedAt / EndedAt drive elapsed display in the agent switcher and window.
+	// EndedAt is set on a terminal status (completed/failed/cancelled).
+	StartedAt time.Time
+	EndedAt   time.Time
 }
 
 // Focus identifies which region of the TUI owns keyboard input. The composer is
@@ -219,4 +223,68 @@ func (trace *AgentTrace) upsertToolBlock(event agent.Event) {
 
 func (trace *AgentTrace) nextBlockID() string {
 	return fmt.Sprintf("%s-trace-%d", trace.TaskID, len(trace.Blocks)+1)
+}
+
+// markEnded stamps EndedAt (and StartedAt if missing) when a child reaches a
+// terminal status so the switcher/window can show a stable elapsed duration.
+func (trace *AgentTrace) markEnded(event agent.Event) {
+	if trace == nil {
+		return
+	}
+	ended := eventTime(event)
+	if ended.IsZero() {
+		ended = time.Now()
+	}
+	if trace.StartedAt.IsZero() {
+		trace.StartedAt = ended
+	}
+	if trace.EndedAt.IsZero() {
+		trace.EndedAt = ended
+	}
+}
+
+// toolCount returns how many tool blocks the child executed (running or done).
+func (trace *AgentTrace) toolCount() int {
+	if trace == nil {
+		return 0
+	}
+	n := 0
+	for _, b := range trace.Blocks {
+		if b.Tool != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// isEmptyCompletion is true when a child finished without executing any tools.
+// That usually means the model returned a plan/text only — useful to surface so
+// the parent/user does not treat status=completed as "work landed on disk".
+func (trace *AgentTrace) isEmptyCompletion() bool {
+	if trace == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(trace.Status)) {
+	case "completed", "cancelled":
+		return trace.toolCount() == 0
+	default:
+		return false
+	}
+}
+
+// elapsed returns wall time for display. Running children use Now-StartedAt;
+// terminal ones prefer EndedAt-StartedAt.
+func (trace *AgentTrace) elapsed() time.Duration {
+	if trace == nil || trace.StartedAt.IsZero() {
+		return 0
+	}
+	end := time.Now()
+	if !trace.EndedAt.IsZero() {
+		end = trace.EndedAt
+	}
+	d := end.Sub(trace.StartedAt)
+	if d < 0 {
+		return 0
+	}
+	return d
 }

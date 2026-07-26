@@ -518,23 +518,32 @@ func isToolActivityBlock(block Block) bool {
 }
 
 // renderSubagentBlock renders a delegated subagent task as a single folded
-// line: an accent title, a status-colored lifecycle, and a one-line preview of
-// the body (usually the result/description). The full body is intentionally not
-// expanded so a long subagent result does not push the main agent's own output
-// out of view.
-func renderSubagentBlock(block Block, width int) string {
+// line: an accent title, a status-colored lifecycle, live activity from the
+// child trace when available, and a one-line preview of the body. The full
+// body is intentionally not expanded so a long subagent result does not push
+// the main agent's own output out of view. Enter (in scrollback) opens the
+// child window for this block id.
+func (m Model) renderSubagentBlock(block Block, width int) string {
 	header := commandStyle.Render(block.Title)
-	statusStyle := dimStyle
-	switch strings.TrimSpace(block.Summary) {
-	case "running":
-		statusStyle = accentStyle
-	case "completed":
-		statusStyle = successStyle
-	case "failed":
-		statusStyle = errorStyle
+	status := strings.TrimSpace(block.Summary)
+	if tr := m.subagentTraces[block.ID]; tr != nil && strings.TrimSpace(tr.Status) != "" {
+		status = strings.TrimSpace(tr.Status)
 	}
-	if status := strings.TrimSpace(block.Summary); status != "" {
+	statusStyle := agentStatusStyle(status)
+	if status != "" {
 		header += " " + statusStyle.Render(status)
+	}
+	if tr := m.subagentTraces[block.ID]; tr != nil {
+		activity := m.agentActivityText(block.ID, status, latestToolName(tr))
+		if activity != "" {
+			header += " " + dimStyle.Render(activity)
+		}
+		if tr.Unread {
+			header += " " + accentStyle.Render("·")
+		}
+		if tr.isEmptyCompletion() {
+			header += " " + warningStyle.Render("empty?")
+		}
 	}
 	body := strings.TrimRight(block.Body, "\n")
 	if body == "" {

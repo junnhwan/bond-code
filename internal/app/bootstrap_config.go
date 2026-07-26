@@ -115,7 +115,6 @@ func defaultSubagentConfig() config.SubagentConfig {
 		MaxChildrenPerTurn:    3,
 		MaxDepth:              1,
 		DefaultTimeoutSeconds: 600,
-
 	}
 }
 
@@ -165,6 +164,9 @@ func applyConfigDefaults(cfg *config.Config) {
 			OverloadFallbackThreshold: 2,
 		}
 	}
+	// rate_limit 段：省略时默认开启（父+子共享闸，避免多 Agent 打爆低 RPM 网关）。
+	// 显式 enabled: false 关闭；显式 enabled: true 或缺省但写了其它字段则补齐默认。
+	applyRateLimitDefaults(&cfg.Model.RateLimit)
 	if cfg.Agent == (config.AgentConfig{}) {
 		cfg.Agent = defaultAgentConfig()
 	} else {
@@ -264,6 +266,36 @@ func applyConfigDefaults(cfg *config.Config) {
 
 func isZeroMCPConfig(cfg config.MCPConfig) bool {
 	return !cfg.Enabled && !cfg.InjectTools && !cfg.NamespaceTools && cfg.CallTimeoutSeconds == 0 && cfg.ReconnectBackoffSeconds == 0 && len(cfg.Servers) == 0
+}
+
+// applyRateLimitDefaults fills model.rate_limit when omitted. Explicit
+// enabled: false keeps the gate off; otherwise missing fields get production
+// defaults (max_concurrent=1, 60s 429 cooldown).
+func applyRateLimitDefaults(rl *config.RateLimitConfig) {
+	if rl == nil {
+		return
+	}
+	if rl.Enabled != nil && !*rl.Enabled {
+		return
+	}
+	on := true
+	if rl.Enabled == nil {
+		// Section omitted entirely, or only partial fields without enabled.
+		// Turn on unless every field is still zero (same as omitted).
+		if rl.MaxConcurrent == 0 && rl.MaxRequestsPerMinute == 0 && rl.CooldownOnRateLimitMs == 0 {
+			rl.Enabled = &on
+			rl.MaxConcurrent = 1
+			rl.CooldownOnRateLimitMs = 60000
+			return
+		}
+		rl.Enabled = &on
+	}
+	if rl.MaxConcurrent <= 0 {
+		rl.MaxConcurrent = 1
+	}
+	if rl.CooldownOnRateLimitMs <= 0 {
+		rl.CooldownOnRateLimitMs = 60000
+	}
 }
 
 func applyEnv(cfg *config.Config) {

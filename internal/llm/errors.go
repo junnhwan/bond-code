@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // APIError 携带 HTTP 状态码与响应体，让上层按错误类型决策而非字符串匹配。
@@ -16,6 +19,9 @@ import (
 type APIError struct {
 	StatusCode int
 	Body       string
+	// RetryAfter is parsed from the Retry-After response header when present
+	// (seconds or HTTP-date). Zero means the provider did not send one.
+	RetryAfter time.Duration
 	Err        error
 }
 
@@ -78,7 +84,47 @@ func IsRateLimited(err error) bool {
 	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 429
 	}
-	return false
+	// Retry wrappers may string-wrap; keep a conservative text fallback so the
+	// shared gate still cooldowns when the typed error is nested oddly.
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "http 429") ||
+		strings.Contains(lower, "rate limit") ||
+		strings.Contains(err.Error(), "1分钟内最多请求")
+}
+
+// ParseRetryAfter reads the standard Retry-After header (delay-seconds or HTTP-date).
+func ParseRetryAfter(h http.Header) time.Duration {
+	if h == nil {
+		return 0
+	}
+	v := strings.TrimSpace(h.Get("Retry-After"))
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		// Cap absurd values (e.g. misconfigured gateways).
+		if secs > 600 {
+			secs = 600
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		if d > 10*time.Minute {
+			return 10 * time.Minute
+		}
+		return d
+	}
+	return 0
 }
 
 // IsOverloaded 报告 5xx（含 529 过载）。

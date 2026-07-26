@@ -26,7 +26,7 @@
 | `Ctrl+O` | 展开/收起工具详情（路径、输出）。不展开历史 thinking |
 | `Ctrl+T` | 显示/隐藏完整 thinking（默认历史隐藏；流式时只在输入框上方 dock 显示一行预览，避免滚动抖动） |
 | `Ctrl+R` | 反向搜索 prompt 历史 |
-| `Ctrl+Up` | Agent 切换器（有子 agent 时） |
+| `Ctrl+Up` | Agent 切换器（有子 agent 时）：pills + 列表，Enter 打开子 transcript，`x` 取消。点击 Agents 条 / pills / 列表 / timeline 子 agent 行也可打开同一套界面 |
 | `Ctrl+G` | 用 `$EDITOR` / `$VISUAL` 编辑草稿 |
 | `Ctrl+S` | 暂存 / 取回草稿 |
 | `Ctrl+L` | 重绘终端 |
@@ -130,6 +130,21 @@ Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `
 - **上下文**：每轮完整性 + tool-result 微裁剪/落盘；阈值或 `/compact` 结构化 checkpoint；`prompt_too_long` 时 emergency shrink 后重试。  
 - **记忆**：本地 memdir（`MEMORY.md` 索引 + 主题 `*.md`）；工具 `memory_save` / `memory_search`。不是向量库。  
 - **Todo**：`todo_write` 整表替换；按 session 落在项目数据目录。
+
+## 多 Agent 与限流
+
+父 agent 与每个 `task` 子 agent 共用同一 API Key；每一步 ReAct 都是一次 LLM stream，并行子 agent 会快速放大请求速率。
+
+默认开启 **共享 LLM 闸门**（`model.rate_limit`）：
+
+| 配置 | 默认 | 作用 |
+|------|------|------|
+| `enabled` | `true` | 总开关 |
+| `max_concurrent` | `1` | 同时进行中的 stream（父+子） |
+| `max_requests_per_minute` | 关（`0`） | 可选滚动窗口 RPM 上限 |
+| `cooldown_on_rate_limit_ms` | `60000` | 收到 429（或 `Retry-After`）后暂停新 stream |
+
+低配额网关（如 15 次/分钟）建议设 `max_requests_per_minute: 12`，并一次只开一个子 agent（`subagent.max_children_per_turn: 1` 或避免 `mode=parallel`）。高配额可把 `max_concurrent` 调到 2–3。
 
 ## Session 与 debug
 

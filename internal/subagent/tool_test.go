@@ -119,10 +119,12 @@ func TestFormatBatchResultPreservesStructureWhenTruncated(t *testing.T) {
 		},
 	}
 
-	output := formatBatchResult(result, 120)
+	// Budget must keep the opening child tag + a slice of body so the
+	// structure-preserving truncate path can close tags cleanly.
+	output := formatBatchResult(result, 220)
 
 	assert.Contains(t, output, "[subagent result truncated]")
-	assert.Contains(t, output, `<child id="alpha" type="research" status="completed" iterations="1">`)
+	assert.Contains(t, output, `<child id="alpha" type="research" status="completed" iterations="1" tools="0" empty="true">`)
 	assert.Contains(t, output, "</child>")
 	assert.True(t, strings.HasSuffix(output, "</task_result>"), output)
 	assert.Less(t, strings.Index(output, "</child>"), strings.LastIndex(output, "</task_result>"))

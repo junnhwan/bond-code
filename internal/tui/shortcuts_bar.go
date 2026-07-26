@@ -30,21 +30,33 @@ func (m Model) shortcutHintItems() []HintItem {
 		}
 	}
 	if m.focus == FocusAgentWindow {
-		return []HintItem{{Key: "esc", Label: "back", Pinned: true}}
+		items := []HintItem{{Key: "esc", Label: "back", Pinned: true}}
+		if m.cfg.CancelSubagent != nil {
+			items = append(items, HintItem{Key: "x", Label: "cancel"})
+		}
+		return items
 	}
 	if m.focus == FocusAgentBar {
-		return []HintItem{
+		items := []HintItem{
 			{Key: "↑↓", Label: "select", Pinned: true},
 			{Key: "enter", Label: "open", Pinned: true},
-			{Key: "esc", Label: "back"},
+			{Key: "esc", Label: "back", Pinned: true},
 		}
+		if m.cfg.CancelSubagent != nil {
+			items = append(items, HintItem{Key: "x", Label: "cancel"})
+		}
+		return items
 	}
 	if m.agent.Busy {
-		return []HintItem{
+		items := []HintItem{
 			{Key: "esc", Label: "cancel", Pinned: true},
 			{Key: "ctrl+c", Label: "interrupt", Pinned: true},
 			{Key: "enter", Label: "queue"},
 		}
+		if len(m.availableAgentIDs()) > 0 {
+			items = append(items, HintItem{Key: "ctrl+↑", Label: "agents"})
+		}
+		return items
 	}
 	if m.composer.Suggestions != nil && m.composer.Suggestions.IsVisible() {
 		return []HintItem{
@@ -59,6 +71,9 @@ func (m Model) shortcutHintItems() []HintItem {
 			{Key: "space", Label: "prompt"},
 			{Key: "ctrl+u/d", Label: "scroll"},
 			{Key: "esc", Label: "prompt"},
+		}
+		if len(m.availableAgentIDs()) > 0 {
+			items = append(items, HintItem{Key: "enter", Label: "agent"})
 		}
 		if m.mouseEnabled {
 			items = append(items, HintItem{Key: "shift+drag", Label: "select"})

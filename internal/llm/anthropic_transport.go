@@ -75,7 +75,11 @@ func (c *AnthropicCompatibleClient) streamAnthropicWireWithParser(ctx context.Co
 		if readErr != nil {
 			return controller.translate(readErr)
 		}
-		return &APIError{StatusCode: resp.StatusCode, Body: string(b)}
+		return &APIError{
+			StatusCode: resp.StatusCode,
+			Body:       string(b),
+			RetryAfter: ParseRetryAfter(resp.Header),
+		}
 	}
 	return controller.translate(parseAnthropicSSEWithParser(controller.Context(), resp.Body, chunks, parser))
 }

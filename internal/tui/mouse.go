@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/junnhwan/bond-code/internal/ask"
 )
 
@@ -21,13 +22,18 @@ const (
 	mouseHitSuggestion
 	mouseHitStop      // turn-status [stop] cancel button
 	mouseHitScrollbar // transcript right-edge track / thumb
+	// Agent multi-agent chrome (P2): passive strip, pills, roster list, timeline block.
+	mouseHitAgentStrip // passive Agents strip → open switcher
+	mouseHitAgentPill  // pill chip; command holds agent id
+	mouseHitAgentList  // roster row; command holds agent id
+	mouseHitSubagent   // timeline subagent line; command holds task id
 )
 
 // mouseHit is the resolved target under a terminal cell.
 type mouseHit struct {
 	kind    mouseHitKind
 	index   int    // option / menu / suggestion index
-	command string // welcome menu slash command
+	command string // welcome menu slash command, or agent/task id
 }
 
 // mouseHover tracks hover feedback for surfaces that re-render on motion.
@@ -133,6 +139,14 @@ func (m Model) applyMouseHover(hit mouseHit) Model {
 		if m.composer.Suggestions != nil {
 			m.composer.Suggestions.selected = hit.index
 		}
+	case mouseHitAgentStrip, mouseHitAgentPill, mouseHitAgentList, mouseHitSubagent:
+		m.hover = mouseHover{kind: hit.kind, index: hit.index}
+		// Live roster selection follows the pointer while the switcher is open.
+		if (hit.kind == mouseHitAgentPill || hit.kind == mouseHitAgentList) && hit.command != "" {
+			if m.focus == FocusAgentBar {
+				m.agentBarSelected = hit.command
+			}
+		}
 	default:
 		m.hover = mouseHover{}
 	}
@@ -225,6 +239,43 @@ func (m Model) activateMouseHit(hit mouseHit) (Model, tea.Cmd) {
 		}
 		m.hover = mouseHover{kind: mouseHitScrollbar}
 		return armFlash(m, cmd)
+
+	case mouseHitAgentStrip:
+		// Open the multi-agent switcher when children exist.
+		agents := m.conversationAgents()
+		if len(agents) == 0 {
+			return armFlash(m, nil)
+		}
+		m.focus = FocusAgentBar
+		if m.agentBarSelected == "" {
+			m.agentBarSelected = agents[len(agents)-1]
+		}
+		m.hover = mouseHover{kind: mouseHitAgentStrip}
+		return armFlash(m, nil)
+
+	case mouseHitAgentPill, mouseHitAgentList:
+		id := strings.TrimSpace(hit.command)
+		if id == "" {
+			return armFlash(m, nil)
+		}
+		m.agentBarSelected = id
+		if id == coordinatorAgentID {
+			m.focus = FocusComposer
+			m.focusedTaskID = ""
+		} else {
+			m = m.enterAgentWindow(id)
+		}
+		m.hover = mouseHover{kind: hit.kind, index: hit.index}
+		return armFlash(m, nil)
+
+	case mouseHitSubagent:
+		id := strings.TrimSpace(hit.command)
+		if id == "" {
+			return armFlash(m, nil)
+		}
+		m = m.enterAgentWindow(id)
+		m.hover = mouseHover{kind: mouseHitSubagent}
+		return armFlash(m, nil)
 	}
 	return m, nil
 }
@@ -437,9 +488,15 @@ func (m Model) resolveMouseHit(x, y int) mouseHit {
 				return hit
 			}
 		}
+		// Click a folded subagent timeline row → open that child's window.
+		if taskID := m.subagentTaskIDAtBodyY(relY, layout.TimelineW, layout.TimelineH); taskID != "" {
+			return mouseHit{kind: mouseHitSubagent, command: taskID}
+		}
 		return mouseHit{kind: mouseHitScrollback}
 	case "composer":
 		return mouseHit{kind: mouseHitComposer}
+	case "agent":
+		return m.resolveAgentBarHit(x, relY, layout.TimelineW)
 	case "permission":
 		if idx, ok := permissionOptionIndexAt(target.text, relY, isHighRisk(m.agent.Pending), m.alwaysAvailable()); ok {
 			return mouseHit{kind: mouseHitPermissionOption, index: idx}
@@ -462,6 +519,223 @@ func (m Model) resolveMouseHit(x, y int) mouseHit {
 		}
 	}
 	return mouseHit{}
+}
+
+// resolveAgentBarHit maps a click inside the agent dock band to strip / pill / list.
+func (m Model) resolveAgentBarHit(x, relY, width int) mouseHit {
+	if width < 1 {
+		width = m.width
+	}
+	if m.focus != FocusAgentBar && m.focus != FocusAgentWindow {
+		if len(m.availableAgentIDs()) == 0 {
+			return mouseHit{}
+		}
+		return mouseHit{kind: mouseHitAgentStrip}
+	}
+	// Pills are always the first row of the switcher / window chrome.
+	if relY == 0 {
+		if id, idx, ok := m.agentPillIDAtX(x, width); ok {
+			return mouseHit{kind: mouseHitAgentPill, index: idx, command: id}
+		}
+		return mouseHit{kind: mouseHitAgentStrip}
+	}
+	if m.focus != FocusAgentBar {
+		return mouseHit{}
+	}
+	// List rows sit under the pills; trailing hint line is non-interactive.
+	if id, idx, ok := m.agentListIDAtRelY(relY, width); ok {
+		return mouseHit{kind: mouseHitAgentList, index: idx, command: id}
+	}
+	return mouseHit{}
+}
+
+// agentPillIDAtX finds which pill chip owns column x (same geometry as paint).
+func (m Model) agentPillIDAtX(x, width int) (id string, index int, ok bool) {
+	ids := append([]string{coordinatorAgentID}, m.availableAgentIDs()...)
+	if len(ids) == 0 {
+		return "", 0, false
+	}
+	selected := m.activeAgentRowID()
+	if m.focus == FocusAgentBar && m.agentBarSelected != "" {
+		selected = m.agentBarSelected
+	}
+	if m.focus == FocusAgentWindow && m.focusedTaskID != "" {
+		selected = m.focusedTaskID
+	}
+	prefixW := lipgloss.Width(accentStyle.Render("⬡") + " ")
+	sepW := lipgloss.Width(dimStyle.Render(" "))
+	// Prefer the same visible window joinPillsVisible would paint.
+	pills := make([]string, len(ids))
+	for i, agentID := range ids {
+		pills[i] = m.renderAgentPill(agentID, agentID == selected)
+	}
+	// Walk the full set first; if it overflows, walk the selected-centered window.
+	cursor := prefixW
+	visible := pills
+	visibleIDs := ids
+	fullW := prefixW
+	for i, p := range pills {
+		if i > 0 {
+			fullW += sepW
+		}
+		fullW += lipgloss.Width(p)
+	}
+	if fullW > width {
+		// Recompute the same lo/hi window as joinPillsVisible.
+		sel := 0
+		for i, agentID := range ids {
+			if agentID == selected {
+				sel = i
+				break
+			}
+		}
+		lo, hi := sel, sel
+		lineW := prefixW + lipgloss.Width(pills[sel])
+		for lo > 0 || hi < len(pills)-1 {
+			expanded := false
+			if hi < len(pills)-1 {
+				cand := lineW + sepW + lipgloss.Width(pills[hi+1])
+				if cand <= width {
+					hi++
+					lineW = cand
+					expanded = true
+				}
+			}
+			if lo > 0 {
+				cand := lineW + sepW + lipgloss.Width(pills[lo-1])
+				if cand <= width {
+					lo--
+					lineW = cand
+					expanded = true
+				}
+			}
+			if !expanded {
+				break
+			}
+		}
+		visible = pills[lo : hi+1]
+		visibleIDs = ids[lo : hi+1]
+		if lo > 0 {
+			cursor += lipgloss.Width(dimStyle.Render("…"))
+		}
+	}
+	for i, p := range visible {
+		w := lipgloss.Width(p)
+		if x >= cursor && x < cursor+w {
+			return visibleIDs[i], i, true
+		}
+		cursor += w + sepW
+	}
+	return "", 0, false
+}
+
+// agentListIDAtRelY maps a relative Y inside the agent dock (0 = pills) to a
+// roster agent id. Mirrors renderAgentList windowing.
+func (m Model) agentListIDAtRelY(relY, width int) (id string, index int, ok bool) {
+	if relY < 1 {
+		return "", 0, false
+	}
+	ids := append([]string{coordinatorAgentID}, m.availableAgentIDs()...)
+	if len(ids) == 0 {
+		return "", 0, false
+	}
+	selected := m.agentBarSelected
+	if selected == "" {
+		selected = coordinatorAgentID
+	}
+	start := 0
+	if len(ids) > agentListMaxRows {
+		selIdx := 0
+		for i, agentID := range ids {
+			if agentID == selected {
+				selIdx = i
+				break
+			}
+		}
+		start = selIdx - agentListMaxRows/2
+		if start < 0 {
+			start = 0
+		}
+		if start+agentListMaxRows > len(ids) {
+			start = len(ids) - agentListMaxRows
+		}
+	}
+	end := start + agentListMaxRows
+	if end > len(ids) {
+		end = len(ids)
+	}
+	// relY 0 is pills; list starts at 1. Optional "… N above" occupies a row.
+	row := relY - 1
+	if start > 0 {
+		if row == 0 {
+			return "", 0, false // overflow cue, not a row
+		}
+		row--
+	}
+	if row < 0 || row >= end-start {
+		return "", 0, false
+	}
+	return ids[start+row], start + row, true
+}
+
+// subagentTaskIDAtBodyY maps a transcript body-relative Y to a subagent block
+// task id using the same bottom-aligned scroll window as the timeline view.
+func (m Model) subagentTaskIDAtBodyY(relY, width, height int) string {
+	if height < 1 || relY < 0 || relY >= height || len(m.timeline.Turns) == 0 {
+		return ""
+	}
+	allLines, _ := m.renderTimelineLines(width)
+	if len(allLines) == 0 {
+		return ""
+	}
+	// Map visible relY → absolute line index (bottom-aligned scroll).
+	abs := relY
+	if len(allLines) > height {
+		maxStart := len(allLines) - height
+		scroll := m.scroll
+		if scroll > maxStart {
+			scroll = maxStart
+		}
+		start := maxStart - scroll
+		if start < 0 {
+			start = 0
+		}
+		abs = start + relY
+	}
+	// Walk history with the same spacing as appendTimelineTurnHistoryLines.
+	// Live overlay lines after the history prefix are ignored for subagent hits.
+	_, turnStarts := m.renderTimelineHistoryLines(width)
+	last := len(m.timeline.Turns) - 1
+	for ti, turn := range m.timeline.Turns {
+		off := 0
+		if ti < len(turnStarts) {
+			off = turnStarts[ti]
+		}
+		if body := strings.TrimSpace(turn.User.Body); body != "" {
+			userLines := strings.Split(renderUserEcho(body, width), "\n")
+			off += len(userLines) + 1 // trailing blank after user echo
+		}
+		for bi, block := range turn.Blocks {
+			blockLines := m.renderCachedTimelineBlockLines(block, width)
+			n := len(blockLines)
+			if n == 0 {
+				continue
+			}
+			if block.Kind == BlockSubagent {
+				if id := strings.TrimSpace(block.ID); id != "" && abs >= off && abs < off+n {
+					return id
+				}
+			}
+			off += n
+			// Blank between major blocks / before historical run chrome.
+			if bi < len(turn.Blocks)-1 {
+				off++
+			} else if ti != last {
+				off++
+			}
+		}
+	}
+	return ""
 }
 
 func refitMouseBandsFromBottom(bands []mouseBand, height, bodyH int) []mouseBand {

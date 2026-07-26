@@ -26,7 +26,7 @@ Layout: **transcript** → **turn status** (when busy) → **`❯` prompt** (mod
 | `Ctrl+O` | Expand/compact tool details (paths, output). Does not show historical thinking |
 | `Ctrl+T` | Show/hide full thinking text (default: history hidden; live thinking is one fixed dock line above the prompt) |
 | `Ctrl+R` | Reverse-search prompt history |
-| `Ctrl+Up` | Agent switcher (when sub-agents exist) |
+| `Ctrl+Up` | Agent switcher (when sub-agents exist): pills + list, Enter opens child transcript, `x` cancels. Click the Agents strip / pills / list / timeline subagent row also opens the same chrome |
 | `Ctrl+G` | Edit draft in `$EDITOR` / `$VISUAL` |
 | `Ctrl+S` | Stash / restore draft |
 | `Ctrl+L` | Redraw |
@@ -130,6 +130,21 @@ Mode changes are recorded on the session JSONL before taking effect.
 - **Context**: per-turn integrity + tool-result micro-trim/spill; threshold/manual `/compact` with structured checkpoint; `prompt_too_long` emergency shrink + retry.  
 - **Memory**: local memdir (`MEMORY.md` index + topic `*.md`); tools `memory_save` / `memory_search`. Not a vector DB.  
 - **Todos**: `todo_write` replaces the whole list; stored per session under the project data dir.
+
+## Multi-agent & rate limits
+
+Parent agent and every `task` subagent share one API key. Each ReAct step is one LLM stream, so parallel children multiply request rate quickly.
+
+BondCode applies a **shared LLM gate** by default (`model.rate_limit`):
+
+| Setting | Default | Role |
+|---------|---------|------|
+| `enabled` | `true` | Master switch |
+| `max_concurrent` | `1` | In-flight streams (parent + children) |
+| `max_requests_per_minute` | off (`0`) | Optional rolling RPM cap |
+| `cooldown_on_rate_limit_ms` | `60000` | Pause new streams after HTTP 429 (or `Retry-After`) |
+
+On a tight gateway (e.g. 15 req/min), set `max_requests_per_minute: 12` and prefer one subagent at a time (`subagent.max_children_per_turn: 1` or avoid `mode=parallel`). High-quota providers can raise `max_concurrent` (e.g. 2–3).
 
 ## Sessions & debug
 

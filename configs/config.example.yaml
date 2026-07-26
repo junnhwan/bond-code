@@ -31,6 +31,14 @@ model:
     overload_fallback_threshold: 2
     # fallback_models:
     #   - glm-5.1-flash
+  # Shared gate for parent + all subagent LLM streams on this API key.
+  # Default (when omitted): enabled, max_concurrent=1, 60s cooldown after 429.
+  # On a 15 req/min gateway set max_requests_per_minute: 12 for headroom.
+  rate_limit:
+    enabled: true
+    max_concurrent: 1
+    # max_requests_per_minute: 12
+    cooldown_on_rate_limit_ms: 60000
 
 # Per-project state root. Defaults to ~/.bondcode/projects/<encoded-cwd>
 # (mirrors Claude Code's ~/.claude/projects): session audit logs, memory, todos

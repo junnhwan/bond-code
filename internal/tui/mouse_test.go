@@ -305,3 +305,100 @@ func TestMouseWheelStillScrolls(t *testing.T) {
 		t.Fatal("wheel-up did not scroll")
 	}
 }
+
+func TestMouseClickAgentStripOpensSwitcher(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(100, 30)
+	m.subagentTraces["task-a"] = &AgentTrace{TaskID: "task-a", AgentType: "coder", Status: "running"}
+	m.traceMembershipVersion++
+
+	// Find agent band Y by scanning hits.
+	var agentY int = -1
+	for y := 0; y < m.height; y++ {
+		if m.resolveMouseHit(5, y).kind == mouseHitAgentStrip {
+			agentY = y
+			break
+		}
+	}
+	if agentY < 0 {
+		t.Fatal("expected passive agent strip hit target")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: 5, Y: agentY,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	if next.focus != FocusAgentBar {
+		t.Fatalf("click strip should open switcher, focus=%s", next.focus)
+	}
+	if next.agentBarSelected != "task-a" {
+		t.Fatalf("selected=%q want task-a", next.agentBarSelected)
+	}
+}
+
+func TestMouseClickAgentListOpensWindow(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(100, 30)
+	m.focus = FocusAgentBar
+	m.agentBarSelected = "task-a"
+	m.subagentTraces["task-a"] = &AgentTrace{TaskID: "task-a", AgentType: "coder", Status: "running"}
+	m.subagentTraces["task-b"] = &AgentTrace{TaskID: "task-b", AgentType: "reviewer", Status: "completed"}
+	m.traceMembershipVersion++
+
+	// List row for task-b is under pills (relY>=1). Scan for mouseHitAgentList with command task-b.
+	var hitX, hitY int = -1, -1
+	for y := 0; y < m.height; y++ {
+		for x := 0; x < m.width; x++ {
+			hit := m.resolveMouseHit(x, y)
+			if hit.kind == mouseHitAgentList && hit.command == "task-b" {
+				hitX, hitY = x, y
+				break
+			}
+		}
+		if hitX >= 0 {
+			break
+		}
+	}
+	if hitX < 0 {
+		t.Fatal("expected agent list hit for task-b")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: hitX, Y: hitY,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	if next.focus != FocusAgentWindow || next.focusedTaskID != "task-b" {
+		t.Fatalf("click list should open window: focus=%s id=%q", next.focus, next.focusedTaskID)
+	}
+}
+
+func TestMouseClickTimelineSubagentOpensWindow(t *testing.T) {
+	m := NewModel(Config{MouseCapture: true}).SetSize(100, 30)
+	m.timeline = m.timeline.StartUserTurn("delegate")
+	m.timeline = m.timeline.UpsertSubagentBlock("task-x", "subagent coder", "running", "working")
+	m.subagentTraces["task-x"] = &AgentTrace{TaskID: "task-x", AgentType: "coder", Status: "running"}
+	m.traceMembershipVersion++
+
+	var hitX, hitY int = -1, -1
+	for y := 0; y < m.height; y++ {
+		for x := 0; x < 40; x++ {
+			hit := m.resolveMouseHit(x, y)
+			if hit.kind == mouseHitSubagent && hit.command == "task-x" {
+				hitX, hitY = x, y
+				break
+			}
+		}
+		if hitX >= 0 {
+			break
+		}
+	}
+	if hitX < 0 {
+		t.Fatal("expected timeline subagent hit for task-x")
+	}
+	next, _ := m.handleMouseMsg(tea.MouseMsg{
+		X: hitX, Y: hitY,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	if next.focus != FocusAgentWindow || next.focusedTaskID != "task-x" {
+		t.Fatalf("click subagent row should open window: focus=%s id=%q", next.focus, next.focusedTaskID)
+	}
+}

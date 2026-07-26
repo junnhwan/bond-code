@@ -3,9 +3,20 @@ package subagent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/junnhwan/bond-code/internal/llm"
 )
 
 const legacyStepBudgetFallbackPrefix = "step budget reached after tool use; returning the latest available tool result"
+
+// emptyCompletionNotice is injected into parent-facing task results when a child
+// finishes without any tool use so the main agent does not treat status=completed
+// as "work landed on disk". Keep it short so batch truncation still preserves
+// child XML structure.
+const emptyCompletionNotice = "⚠ empty completion: no tools executed — treat summary as unverified text/plan only, not applied work."
+
+// rateLimitNotice is appended when a child fails after provider 429 exhaustion.
+const rateLimitNotice = "Rate limited by the model provider. Wait before retrying, reduce parallel subagents, or lower request rate."
 
 // validateUsableFinalAnswer is the final status boundary for child agents. It
 // deliberately rejects known transport/fallback artifacts even if an upstream
@@ -39,4 +50,56 @@ func startsWithToolProtocol(answer string) bool {
 		}
 	}
 	return false
+}
+
+// countToolResults counts RoleTool messages (one result per executed tool call).
+func countToolResults(messages []llm.Message) int {
+	n := 0
+	for _, msg := range messages {
+		if msg.Role == llm.RoleTool {
+			n++
+		}
+	}
+	return n
+}
+
+// isRateLimitText reports provider rate-limit failures from error strings
+// (APIError.Error() form and common gateway wording).
+func isRateLimitText(errText string) bool {
+	lower := strings.ToLower(strings.TrimSpace(errText))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "429") {
+		return true
+	}
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "请求过于频繁") ||
+		strings.Contains(lower, "1分钟内最多请求")
+}
+
+// annotateResultMetadata fills ToolCount + Metadata observability fields used by
+// the task tool envelope, parent model, and TUI consumers.
+func annotateResultMetadata(result *SubagentResult) {
+	if result == nil {
+		return
+	}
+	if result.ToolCount == 0 && len(result.Messages) > 0 {
+		result.ToolCount = countToolResults(result.Messages)
+	}
+	if result.Metadata == nil {
+		result.Metadata = map[string]any{}
+	}
+	result.Metadata["tool_count"] = result.ToolCount
+	result.Metadata["iterations"] = result.Iterations
+	if ms := result.DurationMs(); ms > 0 {
+		result.Metadata["duration_ms"] = ms
+	}
+	if result.IsEmptyCompletion() {
+		result.Metadata["empty_completion"] = true
+	}
+	if result.Status == "failed" && isRateLimitText(result.Error) {
+		result.Metadata["rate_limited"] = true
+	}
 }

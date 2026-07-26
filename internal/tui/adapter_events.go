@@ -143,10 +143,21 @@ func (m Model) applySubagentEvent(event agent.Event) Model {
 	case agent.EventSubagentStarted, agent.EventSubagentProgress, agent.EventSubagentFinished,
 		agent.EventSubagentFailed, agent.EventSubagentCancelled:
 		taskID, title, status, body := subagentBlockFromEvent(event)
+		// Humanize rate-limit failures in the folded timeline body.
+		if event.Type == agent.EventSubagentFailed {
+			if notice := humanizeAgentError(firstNonEmpty(event.Error, event.Message)); notice != "" && notice != strings.TrimSpace(event.Error) {
+				if body == "" {
+					body = notice
+				} else if !strings.Contains(body, "Rate limited") {
+					body = notice + "\n\n" + body
+				}
+			}
+		}
 		m.timeline = m.timeline.UpdateAgentStatus("working", firstNonEmpty("subagent: "+status, "subagent"), eventTime(event))
 		m.timeline = m.timeline.UpsertSubagentBlock(taskID, title, status, body)
 		m.live = LiveStatusWithSubagentTimeline(m.live, m.timeline)
 		m = m.updateSubagentTrace(event)
+		m = m.notifySubagentTerminal(event, taskID)
 		return m.markNewOutputBelow()
 	case agent.EventSubagentToolCall, agent.EventSubagentModelChunk, agent.EventSubagentReasoningChunk:
 		// Child transcript/tool streams live only in the agent window, not the main timeline.
@@ -154,6 +165,37 @@ func (m Model) applySubagentEvent(event agent.Event) Model {
 	default:
 		return m
 	}
+}
+
+// notifySubagentTerminal surfaces rate-limit and empty-completion outcomes as
+// short toasts so multi-agent runs stay scannable without opening every window.
+func (m Model) notifySubagentTerminal(event agent.Event, taskID string) Model {
+	switch event.Type {
+	case agent.EventSubagentFailed:
+		raw := firstNonEmpty(event.Error, event.Message)
+		if isRateLimitErrorText(raw) {
+			name := firstNonEmpty(event.ToolName, taskID, "subagent")
+			return m.pushToast(name+": rate limited — wait or reduce parallel agents", toastWarn)
+		}
+	case agent.EventSubagentFinished:
+		if tr := m.subagentTraces[taskID]; tr != nil && tr.isEmptyCompletion() {
+			name := firstNonEmpty(tr.AgentType, event.ToolName, taskID, "subagent")
+			return m.pushToast(name+": completed with no tools", toastWarn)
+		}
+	}
+	return m
+}
+
+func isRateLimitErrorText(raw string) bool {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "429") ||
+		strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "请求过于频繁") ||
+		strings.Contains(lower, "1分钟内最多请求")
 }
 
 func (m Model) applyTerminalEvent(event agent.Event, hadAssistantLive bool) Model {

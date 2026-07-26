@@ -222,6 +222,13 @@ func (m Model) updateSubagentTrace(event agent.Event) Model {
 		trace.AgentType = event.ToolName
 		trace.Title = firstNonEmpty(event.Message, event.ToolName, "subagent")
 		trace.Status = "running"
+		if trace.StartedAt.IsZero() {
+			trace.StartedAt = eventTime(event)
+			if trace.StartedAt.IsZero() {
+				trace.StartedAt = time.Now()
+			}
+		}
+		trace.EndedAt = time.Time{}
 	case agent.EventSubagentModelChunk:
 		trace.appendLiveChunk(BlockAssistant, event.Message)
 	case agent.EventSubagentReasoningChunk:
@@ -238,6 +245,7 @@ func (m Model) updateSubagentTrace(event agent.Event) Model {
 		hadStream := trace.LiveStream != nil || trace.hasAssistantBlock()
 		trace.commitLiveStream()
 		trace.Status = "completed"
+		trace.markEnded(event)
 		if !hadStream {
 			trace.FinalAnswer = event.Output
 		} else {
@@ -246,10 +254,12 @@ func (m Model) updateSubagentTrace(event agent.Event) Model {
 	case agent.EventSubagentFailed:
 		trace.commitLiveStream()
 		trace.Status = "failed"
+		trace.markEnded(event)
 		trace.FinalAnswer = firstNonEmpty(event.Output, event.Error)
 	case agent.EventSubagentCancelled:
 		trace.commitLiveStream()
 		trace.Status = "cancelled"
+		trace.markEnded(event)
 		trace.FinalAnswer = firstNonEmpty(event.Output, event.Message)
 	}
 	if m.focus == FocusAgentWindow && m.focusedTaskID == taskID {

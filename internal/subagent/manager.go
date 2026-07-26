@@ -151,6 +151,7 @@ func (m *SubagentManager) RunTask(ctx context.Context, req TaskRequest) (*Subage
 	result, err := m.runTaskViaLoop(taskCtx, req, profile, resumeHistory)
 	if result != nil {
 		result.FinalAnswer = m.capResultOutput(result.FinalAnswer)
+		annotateResultMetadata(result)
 		// Only successful runs become resumable. Failed/partial histories can end
 		// in an unmatched tool protocol or an unusable budget fallback.
 		if result.Status == "completed" && len(result.Messages) > 0 {
@@ -318,6 +319,10 @@ func (m *SubagentManager) runTaskViaLoop(ctx context.Context, req TaskRequest, p
 		// (Phase 4). It is not part of the model-facing task result.
 		result.Messages = runResult.Messages
 	}
+	// Count tools before status finalization so empty-completion is observable
+	// even when validation later fails the run. Metadata is annotated in
+	// RunTask after EndTime is stamped by the deferred closer.
+	result.ToolCount = countToolResults(result.Messages)
 	validationErr := validateUsableFinalAnswer(result.FinalAnswer)
 	switch {
 	case ctx.Err() != nil:
@@ -448,8 +453,27 @@ func eventFromResult(result *SubagentResult) Event {
 		return Event{Type: EventFailed, Status: "failed", Error: "subagent returned no result"}
 	}
 	eventType := EventFinished
-	if result.Status != "completed" {
+	if result.Status == "cancelled" {
+		// Keep cancelled distinct when the runtime surfaces it; TUI maps failed
+		// otherwise. Today RunTask uses EventFailed for non-completed, but Status
+		// still carries "cancelled" for consumers that read it.
 		eventType = EventFailed
+	} else if result.Status != "completed" {
+		eventType = EventFailed
+	}
+	msg := strings.TrimSpace(result.FinalAnswer)
+	if result.IsEmptyCompletion() && msg != "" {
+		// Surface the empty-completion cue on the lifecycle event so the TUI /
+		// session audit can show it without re-deriving tool counts.
+		msg = emptyCompletionNotice + "\n\n" + msg
+	}
+	errText := result.Error
+	if result.Status == "failed" && isRateLimitText(errText) && !strings.Contains(strings.ToLower(errText), "rate limited by the model provider") {
+		if strings.TrimSpace(errText) == "" {
+			errText = rateLimitNotice
+		} else {
+			errText = rateLimitNotice + "\n\n" + errText
+		}
 	}
 	return Event{
 		Type:        eventType,
@@ -457,8 +481,8 @@ func eventFromResult(result *SubagentResult) Event {
 		Description: result.Description,
 		AgentType:   result.AgentType,
 		Status:      result.Status,
-		Message:     strings.TrimSpace(result.FinalAnswer),
-		Error:       result.Error,
+		Message:     msg,
+		Error:       errText,
 		Iterations:  result.Iterations,
 	}
 }

@@ -95,7 +95,8 @@ func (m Model) measureBottomDock() bottomDock {
 	if m.agent.Pending == nil {
 		dock.question = renderQuestionPanel(m.question, m.questionCursor, m.questionSelected, m.width)
 	}
-	// Multi-agent switcher only when user is in agent focus (not primary chrome).
+	// Multi-agent strip: passive summary when children exist; full switcher/list
+	// when the user is in agent focus modes (see agentBarView).
 	dock.agentBar = m.agentBarView()
 	return dock
 }

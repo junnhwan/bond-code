@@ -45,7 +45,21 @@ func (m *SubagentManager) runParallel(ctx context.Context, tasks []TaskRequest) 
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("parallel mode requires at least one task")
 	}
+	// Worker pool sized to MaxChildrenPerTurn: queue excess tasks instead of
+	// launching every goroutine at once (which used to fail the surplus with
+	// "concurrency limit exceeded" and stampede the shared LLM rate gate).
+	workers := m.options.MaxChildrenPerTurn
+	if workers <= 0 {
+		workers = DefaultManagerOptions().MaxChildrenPerTurn
+	}
+	if workers > len(tasks) {
+		workers = len(tasks)
+	}
+	if workers < 1 {
+		workers = 1
+	}
 	results := make([]SubagentResult, len(tasks))
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	for idx, task := range tasks {
 		idx := idx
@@ -59,6 +73,22 @@ func (m *SubagentManager) runParallel(ctx context.Context, tasks []TaskRequest) 
 					results[idx] = resultValue(nil, fmt.Errorf("subagent panic: %v", r), task)
 				}
 			}()
+			select {
+			case <-ctx.Done():
+				// Match RunTask's cancelled status so aggregateStatus stays
+				// "cancelled" when the batch is pre-cancelled.
+				results[idx] = SubagentResult{
+					TaskID:      task.TaskID,
+					Description: task.Description,
+					Prompt:      task.Prompt,
+					AgentType:   task.SubagentType,
+					Status:      "cancelled",
+					Error:       ctx.Err().Error(),
+				}
+				return
+			case sem <- struct{}{}:
+			}
+			defer func() { <-sem }()
 			result, err := m.RunTask(ctx, task)
 			results[idx] = resultValue(result, err, task)
 		}()

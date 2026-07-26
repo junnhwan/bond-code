@@ -73,6 +73,7 @@ Profiles (subagent_type — pick by what the work is):
 ` + AgentTypeListing() + `
 Parallel vs sequential:
 - 2-3 INDEPENDENT subtasks → send multiple task calls in ONE message (preferred) or use tasks[] with mode="parallel".
+- On low rate-limit providers, prefer ONE subagent at a time (or mode="chain"); parallel multiplies LLM requests and can hit 429.
 - Each task needs the previous one's output → mode="chain".
 
 Resuming: set resume_task_id to a task_id a prior task call returned. The child continues that prior child's conversation (same profile, full history preserved) with your new prompt, instead of starting fresh. Use it to iterate on a sub-agent's work without re-explaining the context. Unknown id → error.`
@@ -229,21 +230,59 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (*tool.Res
 	}
 
 	output := formatTaskResult(result)
+	metadata := taskResultMetadata(result)
+	if result.Status != "completed" {
+		summary := "subagent task failed"
+		if isRateLimitText(result.Error) {
+			summary = "subagent rate limited"
+		}
+		envelope := tool.ErrorResult(t.Name(), summary, firstNonEmpty(result.Error, rateLimitNotice))
+		envelope.Output = output
+		envelope.Metadata = metadata
+		return envelope, nil
+	}
+	summary := "subagent task completed"
+	if result.IsEmptyCompletion() {
+		summary = "subagent completed with no tools (unverified)"
+	}
+	envelope := tool.Success(t.Name(), summary, output)
+	envelope.Metadata = metadata
+	return envelope, nil
+}
+
+func taskResultMetadata(result *SubagentResult) map[string]any {
 	metadata := map[string]any{
 		"task_id":       result.TaskID,
 		"subagent_type": string(result.AgentType),
 		"status":        result.Status,
 		"iterations":    result.Iterations,
+		"tool_count":    result.ToolCount,
 	}
-	if result.Status != "completed" {
-		envelope := tool.ErrorResult(t.Name(), "subagent task failed", result.Error)
-		envelope.Output = output
-		envelope.Metadata = metadata
-		return envelope, nil
+	if ms := result.DurationMs(); ms > 0 {
+		metadata["duration_ms"] = ms
 	}
-	envelope := tool.Success(t.Name(), "subagent task completed", output)
-	envelope.Metadata = metadata
-	return envelope, nil
+	if result.IsEmptyCompletion() {
+		metadata["empty_completion"] = true
+	}
+	if result.Status == "failed" && isRateLimitText(result.Error) {
+		metadata["rate_limited"] = true
+	}
+	// Merge any extra keys already annotated on the result.
+	for k, v := range result.Metadata {
+		if _, exists := metadata[k]; !exists {
+			metadata[k] = v
+		}
+	}
+	return metadata
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func formatBatchResult(result *BatchResult, maxChars int) string {
@@ -256,19 +295,16 @@ func formatBatchResult(result *BatchResult, maxChars int) string {
 		html.EscapeString(result.Status),
 	))
 	for _, child := range result.Results {
-		body := strings.TrimSpace(child.FinalAnswer)
-		if body == "" {
-			body = strings.TrimSpace(child.Error)
-		}
-		if body == "" {
-			body = "No final answer returned."
-		}
+		body := childResultBody(&child)
 		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf(`<child id="%s" type="%s" status="%s" iterations="%d">`,
+		b.WriteString(fmt.Sprintf(`<child id="%s" type="%s" status="%s" iterations="%d" tools="%d"%s%s>`,
 			html.EscapeString(child.TaskID),
 			html.EscapeString(string(child.AgentType)),
 			html.EscapeString(child.Status),
 			child.Iterations,
+			child.ToolCount,
+			emptyCompletionAttr(child.IsEmptyCompletion()),
+			durationAttr(child.DurationMs()),
 		))
 		b.WriteString("\nSummary:\n")
 		b.WriteString(body)
@@ -300,7 +336,24 @@ func capBatchOutput(output string, maxChars int) string {
 
 func formatTaskResult(result *SubagentResult) string {
 	if result == nil {
-		return `<task_result id="" type="" status="failed" iterations="0">` + "\nSummary:\nsubagent returned no result\n</task_result>"
+		return `<task_result id="" type="" status="failed" iterations="0" tools="0">` + "\nSummary:\nsubagent returned no result\n</task_result>"
+	}
+	body := childResultBody(result)
+	return fmt.Sprintf(`<task_result id="%s" type="%s" status="%s" iterations="%d" tools="%d"%s%s>`+"\nSummary:\n%s\n</task_result>",
+		html.EscapeString(result.TaskID),
+		html.EscapeString(string(result.AgentType)),
+		html.EscapeString(result.Status),
+		result.Iterations,
+		result.ToolCount,
+		emptyCompletionAttr(result.IsEmptyCompletion()),
+		durationAttr(result.DurationMs()),
+		body,
+	)
+}
+
+func childResultBody(result *SubagentResult) string {
+	if result == nil {
+		return "No final answer returned."
 	}
 	body := strings.TrimSpace(result.FinalAnswer)
 	if body == "" {
@@ -309,11 +362,31 @@ func formatTaskResult(result *SubagentResult) string {
 	if body == "" {
 		body = "No final answer returned."
 	}
-	return fmt.Sprintf(`<task_result id="%s" type="%s" status="%s" iterations="%d">`+"\nSummary:\n%s\n</task_result>",
-		html.EscapeString(result.TaskID),
-		html.EscapeString(string(result.AgentType)),
-		html.EscapeString(result.Status),
-		result.Iterations,
-		body,
-	)
+	switch {
+	case result.IsEmptyCompletion():
+		// Keep status=completed (research may answer from prompt alone) but make
+		// the empty-tool outcome impossible for the parent to miss.
+		if !strings.Contains(body, "empty completion") {
+			body = emptyCompletionNotice + "\n\n" + body
+		}
+	case result.Status == "failed" && isRateLimitText(result.Error):
+		if !strings.Contains(strings.ToLower(body), "rate limited by the model provider") {
+			body = rateLimitNotice + "\n\n" + body
+		}
+	}
+	return body
+}
+
+func emptyCompletionAttr(empty bool) string {
+	if !empty {
+		return ""
+	}
+	return ` empty="true"`
+}
+
+func durationAttr(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(` duration_ms="%d"`, ms)
 }

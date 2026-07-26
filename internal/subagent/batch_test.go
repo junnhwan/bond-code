@@ -66,6 +66,41 @@ func TestBatchRunsParallelTasksWithinLimit(t *testing.T) {
 	}
 }
 
+func TestBatchParallelQueuesBeyondMaxChildren(t *testing.T) {
+	// Three tasks with MaxChildrenPerTurn=1 must queue (not fail the surplus).
+	manager := newTestManagerWithOptions(
+		llmfake.New([][]llm.Chunk{
+			{{Content: "a", Done: true}},
+			{{Content: "b", Done: true}},
+			{{Content: "c", Done: true}},
+		}),
+		tool.NewRegistry(),
+		ManagerOptions{MaxChildrenPerTurn: 1, DefaultTimeoutSeconds: 5},
+	)
+	result, err := manager.RunBatch(context.Background(), BatchRequest{
+		Mode: TaskModeParallel,
+		Tasks: []TaskRequest{
+			{Description: "a", Prompt: "a", SubagentType: AgentTypeResearch, TaskID: "a"},
+			{Description: "b", Prompt: "b", SubagentType: AgentTypeResearch, TaskID: "b"},
+			{Description: "c", Prompt: "c", SubagentType: AgentTypeResearch, TaskID: "c"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("queued parallel: %v", err)
+	}
+	if result.Status != "completed" || len(result.Results) != 3 {
+		t.Fatalf("expected 3 completed, got %#v", result)
+	}
+	for _, child := range result.Results {
+		if child.Status != "completed" {
+			t.Fatalf("child should complete after queue, got %#v", result.Results)
+		}
+		if strings.Contains(child.Error, "concurrency limit") {
+			t.Fatalf("must queue instead of concurrency error: %#v", child)
+		}
+	}
+}
+
 func TestBatchRunsChainWithPreviousResult(t *testing.T) {
 	client := llmfake.New([][]llm.Chunk{
 		{{Content: "first answer", Done: true}},

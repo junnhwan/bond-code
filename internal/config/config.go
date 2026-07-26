@@ -22,15 +22,16 @@ type ModelConfig struct {
 	// Provider is informational only today. The runtime always uses the
 	// Anthropic Messages client (POST {base_url}/v1/messages); values other
 	// than anthropic-compatible do not switch the wire protocol.
-	Provider                 string         `yaml:"provider"`
-	BaseURL                  string         `yaml:"base_url"`
-	APIKeyEnv                string         `yaml:"api_key_env"`
-	Model                    string         `yaml:"model"`
-	Temperature              float32        `yaml:"temperature"`
-	MaxTokens                int            `yaml:"max_tokens"`
-	StreamIdleTimeoutSeconds int            `yaml:"stream_idle_timeout_seconds"`
-	Thinking                 ThinkingConfig `yaml:"thinking"`
-	Retry                    RetryConfig    `yaml:"retry"`
+	Provider                 string          `yaml:"provider"`
+	BaseURL                  string          `yaml:"base_url"`
+	APIKeyEnv                string          `yaml:"api_key_env"`
+	Model                    string          `yaml:"model"`
+	Temperature              float32         `yaml:"temperature"`
+	MaxTokens                int             `yaml:"max_tokens"`
+	StreamIdleTimeoutSeconds int             `yaml:"stream_idle_timeout_seconds"`
+	Thinking                 ThinkingConfig  `yaml:"thinking"`
+	Retry                    RetryConfig     `yaml:"retry"`
+	RateLimit                RateLimitConfig `yaml:"rate_limit"`
 	// PromptCache enables Anthropic prompt-caching breakpoints (cache_control:
 	// ephemeral) on the system prompt and tool definitions. Off by default so
 	// providers that don't honor cache_control are unaffected; enable for caches
@@ -49,6 +50,33 @@ type RetryConfig struct {
 	MaxBackoffMs              int      `yaml:"max_backoff_ms"`
 	OverloadFallbackThreshold int      `yaml:"overload_fallback_threshold"`
 	FallbackModels            []string `yaml:"fallback_models"`
+}
+
+// RateLimitConfig paces all LLM Stream calls that share one API key (parent
+// agent + every subagent). Without this, parallel multi-agent runs multiply
+// requests and trip low-RPM gateways (e.g. 15 req/min). Defaults are applied
+// when the section is omitted; set enabled: false to restore unbounded traffic.
+// Enabled is a pointer so explicit false is distinguishable from "section omitted".
+type RateLimitConfig struct {
+	Enabled *bool `yaml:"enabled"`
+	// MaxConcurrent caps in-flight streams (1 = fully serial parent/child).
+	MaxConcurrent int `yaml:"max_concurrent"`
+	// MaxRequestsPerMinute caps stream starts in a rolling 60s window; 0 = off.
+	// For a 15/min gateway, 10–12 leaves headroom for retries.
+	MaxRequestsPerMinute int `yaml:"max_requests_per_minute"`
+	// CooldownOnRateLimitMs is how long new streams wait after a 429 when the
+	// response has no Retry-After (default 60000).
+	CooldownOnRateLimitMs int `yaml:"cooldown_on_rate_limit_ms"`
+}
+
+// RateLimitEnabled reports whether the shared LLM gate is on. Omitted section
+// is treated as on after applyConfigDefaults fills defaults; explicit
+// enabled: false opts out.
+func (c RateLimitConfig) RateLimitEnabled() bool {
+	if c.Enabled == nil {
+		return false // pre-defaults or explicit zero; callers use post-default config
+	}
+	return *c.Enabled
 }
 
 // ThinkingConfig toggles the provider's extended-thinking / reasoning stream.

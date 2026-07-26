@@ -80,7 +80,7 @@ func (m Model) renderBlock(block Block, width int) string {
 			rendered = renderCommandBlock(block.Title, block.Body, max(20, width-2))
 		}
 	case BlockSubagent:
-		rendered = renderBlockMarker("↳", accentStyle, renderSubagentBlock(block, max(20, width-2)))
+		rendered = renderBlockMarker("↳", accentStyle, m.renderSubagentBlock(block, max(20, width-2)))
 	case BlockReasoning:
 		body := strings.TrimRight(block.Body, "\n")
 		if body == "" {

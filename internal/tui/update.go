@@ -253,13 +253,17 @@ func (m Model) handleKeyMessageInner(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.withFocus(FocusComposer)
 		}
 	case "enter":
-		// Open latest/running subagent fullscreen when scrollback-focused.
+		// Scrollback Enter: open the selected subagent block when possible,
+		// else the preferred (running/latest) child. Falls back to prompt.
 		if m.focus == FocusScrollback {
+			if id := m.selectedSubagentID(); id != "" {
+				m = m.enterAgentWindow(id)
+				return m, nil
+			}
 			if id := m.preferredSubagentID(); id != "" {
 				m = m.enterAgentWindow(id)
 				return m, nil
 			}
-			// Enter on empty scrollback also focuses prompt (discoverability).
 			return m.withFocus(FocusComposer)
 		}
 		// Windows console input exposes a paste as rune/Enter events and Bubble
