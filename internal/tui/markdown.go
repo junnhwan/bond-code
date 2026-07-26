@@ -3,130 +3,61 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/x/ansi"
 )
 
-const markdownRendererStyle = "bondcode-dark-code"
-
-// MarkdownRenderer handles rendering Markdown with syntax highlighting
+// MarkdownRenderer turns assistant Markdown into terminal ANSI.
+// Plan B: goldmark + selective chroma (see mdrender.go), not whole-doc Glamour.
 type MarkdownRenderer struct {
-	renderer *glamour.TermRenderer
-	width    int
-	style    string
+	width int
 }
 
-// NewMarkdownRenderer creates a new Markdown renderer with the given width
+// NewMarkdownRenderer creates a renderer bound to the given wrap width.
 func NewMarkdownRenderer(width int) (*MarkdownRenderer, error) {
-	renderer, err := newTermMarkdownRenderer(width, markdownRendererStyle)
-	if err != nil {
-		return nil, err
+	if width < 20 {
+		width = 20
 	}
-
-	return &MarkdownRenderer{
-		renderer: renderer,
-		width:    width,
-		style:    markdownRendererStyle,
-	}, nil
+	return &MarkdownRenderer{width: width}, nil
 }
 
-// Render renders Markdown text to formatted terminal output
+// Render renders Markdown text to formatted terminal output.
+// P0: never return glamour-style corrupted lines — broken output falls back to
+// plain wrapped source so the transcript stays readable.
 func (r *MarkdownRenderer) Render(markdown string) (string, error) {
-	if r.renderer == nil || !containsMarkdownSyntax(markdown) {
-		return markdown, nil // Keep plain text unstyled and searchable
+	if r == nil {
+		return markdown, nil
 	}
-
-	markdown = degradeNarrowMarkdownTables(markdown, r.width)
-	rendered, err := r.renderer.Render(markdown)
-	if err != nil {
-		return markdown, err // Fallback to plain text on error
+	width := r.width
+	if width < 20 {
+		width = 20
 	}
-
-	return strings.TrimRight(rendered, "\n"), nil
+	markdown = degradeNarrowMarkdownTables(markdown, width)
+	out := renderMarkdownTerminal(markdown, width)
+	if markdownOutputBroken(out, width) {
+		return wrapPlainMarkdown(markdown, width), nil
+	}
+	// Final safety: clamp every line with ANSI-safe truncate (no re-hardwrap).
+	return clampMarkdownLines(out, width), nil
 }
 
-// UpdateWidth updates the renderer's word wrap width
+// UpdateWidth updates the renderer's word wrap width.
 func (r *MarkdownRenderer) UpdateWidth(width int) error {
-	if width == r.width {
-		return nil
+	if width < 20 {
+		width = 20
 	}
-
-	renderer, err := newTermMarkdownRenderer(width, r.style)
-	if err != nil {
-		return err
-	}
-
-	r.renderer = renderer
 	r.width = width
 	return nil
 }
 
-func newTermMarkdownRenderer(width int, style string) (*glamour.TermRenderer, error) {
-	if strings.TrimSpace(style) == "" {
-		style = markdownRendererStyle
+func clampMarkdownLines(out string, width int) string {
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if ansi.StringWidth(line) > width {
+			lines[i] = ansi.Truncate(line, width, "")
+		}
 	}
-	styleConfig := markdownStyleConfig(style)
-	return glamour.NewTermRenderer(
-		glamour.WithStyles(styleConfig),
-		glamour.WithWordWrap(width),
-	)
+	return strings.Join(lines, "\n")
 }
-
-func markdownStyleConfig(style string) ansi.StyleConfig {
-	cfg := styles.DarkStyleConfig
-	zero := uint(0)
-	one := uint(1)
-	quoteToken := "│ "
-	// Anchor markdown body text to GrokNight primary (#e1e1e1).
-	cfg.Document.StylePrimitive = ansi.StylePrimitive{
-		Color: stringPtr("#e1e1e1"),
-	}
-	cfg.Document.Margin = &zero
-	cfg.Document.BlockPrefix = ""
-	cfg.Document.BlockSuffix = ""
-	cfg.Paragraph.Margin = &zero
-	// Real headings: no raw "## " prefixes (Grok-style rendered titles).
-	// Color + bold distinguish level; BlockSuffix keeps spacing after titles.
-	cfg.Heading.BlockSuffix = "\n"
-	cfg.Heading.StylePrimitive = ansi.StylePrimitive{
-		Color:  stringPtr("#bb9af7"),
-		Bold:   boolPtr(true),
-		Prefix: "",
-	}
-	cfg.H1.Prefix = ""
-	cfg.H1.StylePrimitive = ansi.StylePrimitive{
-		Color:  stringPtr("#e1e1e1"),
-		Bold:   boolPtr(true),
-		Prefix: "",
-	}
-	cfg.H2.Prefix = ""
-	cfg.H2.StylePrimitive = ansi.StylePrimitive{
-		Color:  stringPtr("#bb9af7"),
-		Bold:   boolPtr(true),
-		Prefix: "",
-	}
-	cfg.H3.Prefix = ""
-	cfg.H3.StylePrimitive = ansi.StylePrimitive{
-		Color:  stringPtr("#c8c8c8"),
-		Bold:   boolPtr(true),
-		Prefix: "",
-	}
-	cfg.H4.Prefix = ""
-	cfg.H5.Prefix = ""
-	cfg.H6.Prefix = ""
-	cfg.BlockQuote.Indent = &one
-	cfg.BlockQuote.IndentToken = &quoteToken
-	cfg.List.LevelIndent = 2
-	cfg.CodeBlock.Margin = &zero
-	if style != markdownRendererStyle {
-		return styles.NoTTYStyleConfig
-	}
-	return cfg
-}
-
-func stringPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool       { return &b }
 
 type markdownCacheEntry struct {
 	width    int
@@ -134,10 +65,8 @@ type markdownCacheEntry struct {
 	rendered string
 }
 
-// renderCachedMarkdownForWidth renders markdown for a block, memoizing the result by
-// block ID so a streaming body only re-renders when its content changes.
-// The cache is a map (a reference type), so writes made from View's value
-// receiver persist across frames without round-tripping through Update.
+// renderCachedMarkdownForWidth renders markdown for a block, memoizing by
+// block ID so a streaming body only re-renders when content changes.
 func (m Model) renderCachedMarkdownForWidth(blockID, body string, width int) string {
 	if body == "" {
 		return ""
@@ -146,10 +75,10 @@ func (m Model) renderCachedMarkdownForWidth(blockID, body string, width int) str
 		width = 20
 	}
 	if m.markdownRenderer == nil {
-		return body
+		return wrapPlainMarkdown(body, width)
 	}
 	if err := m.markdownRenderer.UpdateWidth(width); err != nil {
-		return body
+		return wrapPlainMarkdown(body, width)
 	}
 	if m.markdownCache != nil {
 		if entry, ok := m.markdownCache[blockID]; ok && entry.width == width && entry.body == body {
@@ -158,7 +87,7 @@ func (m Model) renderCachedMarkdownForWidth(blockID, body string, width int) str
 	}
 	rendered, err := m.markdownRenderer.Render(body)
 	if err != nil {
-		return body
+		return wrapPlainMarkdown(body, width)
 	}
 	if m.markdownCache != nil {
 		m.markdownCache[blockID] = markdownCacheEntry{width: width, body: body, rendered: rendered}
@@ -166,7 +95,7 @@ func (m Model) renderCachedMarkdownForWidth(blockID, body string, width int) str
 	return rendered
 }
 
-// invalidateMarkdownCache drops cached renders, e.g. when the render width changes.
+// invalidateMarkdownCache drops cached renders (width / theme / density change).
 func (m Model) invalidateMarkdownCache() {
 	for key := range m.markdownCache {
 		delete(m.markdownCache, key)
@@ -239,9 +168,24 @@ func markdownTableCells(line string) []string {
 func containsMarkdownSyntax(markdown string) bool {
 	for _, line := range strings.Split(markdown, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ">") || strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "|") {
+		if strings.HasPrefix(trimmed, "#") ||
+			strings.HasPrefix(trimmed, ">") ||
+			strings.HasPrefix(trimmed, "- ") ||
+			strings.HasPrefix(trimmed, "* ") ||
+			strings.HasPrefix(trimmed, "```") ||
+			strings.HasPrefix(trimmed, "|") {
 			return true
 		}
+		// Ordered list "1. "
+		if len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' {
+			dot := strings.IndexByte(trimmed, '.')
+			if dot > 0 && dot+1 < len(trimmed) && trimmed[dot+1] == ' ' {
+				return true
+			}
+		}
 	}
-	return strings.Contains(markdown, "**") || strings.Contains(markdown, "` ") || strings.Contains(markdown, "](")
+	return strings.Contains(markdown, "**") ||
+		strings.Contains(markdown, "`") ||
+		strings.Contains(markdown, "](") ||
+		strings.Contains(markdown, "__")
 }

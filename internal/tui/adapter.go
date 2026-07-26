@@ -98,16 +98,16 @@ func (m Model) commitLiveStream() Model {
 		return m
 	}
 
-	title := ""
 	switch kind {
 	case BlockAssistant:
-		title = "agent"
+		m.timeline = m.timeline.AppendBlock(BlockAssistant, "agent", body)
 	case BlockReasoning:
-		title = "thinking"
+		// One thinking block per turn: later segments merge in; tools stay
+		// as separate rows and are never dropped by the merge.
+		m.timeline = m.timeline.MergeTurnReasoning(body)
 	default:
 		return m
 	}
-	m.timeline = m.timeline.AppendBlock(kind, title, body)
 	return m.markNewOutputBelow()
 }
 
@@ -300,11 +300,12 @@ func (trace *AgentTrace) commitLiveStream() {
 	if live.body == "" {
 		return
 	}
-	title := "agent"
 	if live.kind == BlockReasoning {
-		title = "thinking"
+		// One thinking block per child trace; never drop tool rows while merging.
+		trace.Blocks = consolidateReasoningBlocks(trace.TaskID, trace.Blocks, live.body, true)
+		return
 	}
-	trace.Blocks = append(trace.Blocks, Block{ID: trace.nextBlockID(), Kind: live.kind, Title: title, Body: live.body})
+	trace.Blocks = append(trace.Blocks, Block{ID: trace.nextBlockID(), Kind: live.kind, Title: "agent", Body: live.body})
 }
 
 func eventTime(event agent.Event) time.Time {

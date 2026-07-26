@@ -33,17 +33,23 @@ func TestKeyRoutingSpaceFocusesPromptFromScrollback(t *testing.T) {
 	}
 }
 
-func TestKeyRoutingCtrlOTogglesToolDetails(t *testing.T) {
+func TestKeyRoutingCtrlOExpandsTranscriptWithoutHidingTools(t *testing.T) {
 	m := NewModel(Config{})
-	beforeDetails := m.showToolDetails
+	m.showToolDetails = true
 	beforeVerbose := m.verbose
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	nm := next.(Model)
-	if nm.showToolDetails == beforeDetails {
-		t.Fatal("ctrl+o should toggle tool details")
-	}
 	if nm.verbose == beforeVerbose {
-		t.Fatal("ctrl+o should toggle verbose transcript density")
+		t.Fatal("ctrl+o should toggle expanded transcript density")
+	}
+	if !nm.showToolDetails {
+		t.Fatal("ctrl+o must not hide completed tool details while expanding")
+	}
+	// Second press returns to compact without requiring a density flip.
+	next, _ = nm.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	nm = next.(Model)
+	if nm.verbose {
+		t.Fatal("second ctrl+o should restore compact view")
 	}
 }
 

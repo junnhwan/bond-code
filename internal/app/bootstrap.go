@@ -26,6 +26,10 @@ type Options struct {
 	// is loaded and new appends continue the same session file (so the context
 	// summary and tool-result store for that session carry over too).
 	ResumeSessionID string
+	// OpenSessionPicker, when set (e.g. bare `bondcode --resume`), asks the TUI
+	// to open the session-manager overlay on startup so the user can pick a
+	// prior conversation without typing /resume first.
+	OpenSessionPicker bool
 	// Debug enables the opt-in per-session debug trace (the model-decision layer
 	// that complements session.jsonl). Zero means off; observe.VerboseDefault /
 	// observe.VerboseFull select how much is recorded. The trace lands at
@@ -139,34 +143,35 @@ func Bootstrap(opts Options) (*App, error) {
 	}
 
 	application = &App{
-		Config:             cfg,
-		Tools:              registry,
-		Sessions:           store,
-		SessionID:          sessionID,
-		Policy:             policy,
-		Confirmer:          confirmer,
-		RuleSource:         ruleSource,
-		Questioner:         opts.Questioner,
-		LLM:                client,
-		Agent:              loop,
-		ContextManager:     contextManager,
-		ContextSummary:     summaryStore,
-		MaxContextTokens:   cfg.Context.MaxTokens,
-		MemoryStore:        memoryStore,
-		MemoryMaxChars:     cfg.Memory.MaxChars,
-		MemoryExtractor:    memoryExtractor,
-		SkillLoader:        skillLoader,
-		SkillMaxChars:      cfg.Skills.MaxChars,
-		TaskStore:          taskStore,
-		SubagentManager:    subagentManager,
-		AgentTasks:         agentTaskService,
-		Collaboration:      collaborationStore,
-		ExecutionBackends:  executionBackends,
-		BackendSupervisor:  backendSupervisor,
-		MCPManager:         mcpManager,
-		TrustManager:       trust.NewManager(filepath.Join(cfg.Session.Dir, "trust.json")),
-		debugLogger:        debugLogger,
-		debugLoggerFactory: debugLoggerFactory,
+		Config:                   cfg,
+		Tools:                    registry,
+		Sessions:                 store,
+		SessionID:                sessionID,
+		Policy:                   policy,
+		Confirmer:                confirmer,
+		RuleSource:               ruleSource,
+		Questioner:               opts.Questioner,
+		LLM:                      client,
+		Agent:                    loop,
+		ContextManager:           contextManager,
+		ContextSummary:           summaryStore,
+		MaxContextTokens:         cfg.Context.MaxTokens,
+		MemoryStore:              memoryStore,
+		MemoryMaxChars:           cfg.Memory.MaxChars,
+		MemoryExtractor:          memoryExtractor,
+		SkillLoader:              skillLoader,
+		SkillMaxChars:            cfg.Skills.MaxChars,
+		TaskStore:                taskStore,
+		SubagentManager:          subagentManager,
+		AgentTasks:               agentTaskService,
+		Collaboration:            collaborationStore,
+		ExecutionBackends:        executionBackends,
+		BackendSupervisor:        backendSupervisor,
+		MCPManager:               mcpManager,
+		TrustManager:             trust.NewManager(filepath.Join(cfg.Session.Dir, "trust.json")),
+		debugLogger:              debugLogger,
+		debugLoggerFactory:       debugLoggerFactory,
+		OpenSessionPickerOnStart: opts.OpenSessionPicker,
 		RuntimePromptContext: agent.RuntimePromptContext{
 			ProjectRoot: projectRoot,
 		},

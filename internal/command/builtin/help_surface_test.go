@@ -41,7 +41,11 @@ func TestHelpSurfaceUsesDiscoverableCommandDescriptors(t *testing.T) {
 		t.Fatalf("help key rows = %#v, want direct-key descriptor rows %#v", got, wantKeyRows)
 	}
 
-	hidden := map[string]bool{"/sessions": true, "/session": true, "/new": true, "/cost": true, "/theme": true, "/quit": true, "/q": true, "/context summary": true}
+	hidden := map[string]bool{
+		"/sessions": true, "/session": true, "/new": true, "/cost": true, "/theme": true,
+		"/quit": true, "/q": true, "/context summary": true,
+		"/model": true, "/permissions": true, "/diff": true, "/history": true,
+	}
 	for _, row := range result.Panel.Sections[0].Rows {
 		if hidden[row.Key] {
 			t.Errorf("hidden compatibility entry %q appeared in help command rows", row.Key)

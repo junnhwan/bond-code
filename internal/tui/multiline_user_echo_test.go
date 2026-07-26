@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -46,5 +47,28 @@ func TestMultilineUserPromptRendersAllLines(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+// User turns must paint a full-width card (Claude-style userMessageBackground).
+// Regression for the half-line bug: only the glyphs were gray, the rest black.
+func TestUserEchoCardFillsTerminalWidth(t *testing.T) {
+	const width = 40
+	rendered := renderUserEcho("hello card", width)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least one card line")
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != width {
+			t.Fatalf("card line %d width = %d, want full %d (ansi=%q plain=%q)", i, got, width, line, ansi.Strip(line))
+		}
+		if !strings.Contains(line, "\x1b[") {
+			t.Fatalf("card line %d should carry ANSI styling for background, got plain %q", i, line)
+		}
+	}
+	plain := ansi.Strip(rendered)
+	if !strings.Contains(plain, "you") || !strings.Contains(plain, "❯") || !strings.Contains(plain, "hello card") {
+		t.Fatalf("card missing role/prompt markers: %q", plain)
 	}
 }

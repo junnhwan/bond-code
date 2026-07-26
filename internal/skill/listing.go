@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -94,11 +95,27 @@ func FormatListing(skills []Skill, budget int) string {
 }
 
 // FormatIndex is a human-facing listing for /skills (no budget pressure).
+// Lines stay single logical entries; the TUI wraps them to the terminal width.
 func FormatIndex(skills []Skill) string {
 	if len(skills) == 0 {
 		return "No skills found."
 	}
-	lines := make([]string, 0, len(skills))
+	modelN, userOnlyN, slashN := 0, 0, 0
+	for _, item := range skills {
+		if item.ModelInvocable() {
+			modelN++
+		} else {
+			userOnlyN++
+		}
+		if item.SlashInvocable() {
+			slashN++
+		}
+	}
+	lines := make([]string, 0, len(skills)+2)
+	lines = append(lines, fmt.Sprintf(
+		"%d skills · %d model-invocable · %d user-only · type /<name> for %d slash-invocable",
+		len(skills), modelN, userOnlyN, slashN,
+	))
 	for _, item := range skills {
 		line := "- " + item.Name
 		if d := item.ListingDescription(); d != "" {
@@ -106,6 +123,9 @@ func FormatIndex(skills []Skill) string {
 		}
 		if item.DisableModelInvocation {
 			line += " [user-only]"
+		}
+		if !item.SlashInvocable() {
+			line += " [model-only]"
 		}
 		if item.Source != "" {
 			line += " (" + string(item.Source) + ")"

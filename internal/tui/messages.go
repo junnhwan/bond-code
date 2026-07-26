@@ -136,6 +136,9 @@ type Config struct {
 	// switch (<leader>1..9): list, rename, pin, delete, switch. May be nil
 	// (those features are then hidden); app.App implements it via a cli adapter.
 	SessionManager SessionManagerController
+	// OpenSessionManagerOnStart opens the session-manager overlay on cold start
+	// (bare `bondcode --resume`). Requires SessionManager; ignored when unset.
+	OpenSessionManagerOnStart bool
 	// SeedHistory pre-populates the timeline when resuming a session. It is a
 	// neutral role/content view so the TUI does not import the llm package.
 	SeedHistory []SeedMessage

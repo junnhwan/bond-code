@@ -157,21 +157,22 @@ func runTUI(ctx context.Context, application *app.App) error {
 	status.ContextBreakdown = breakdownView(snap.Context.Breakdown)
 	var agentInputSequence atomic.Uint64
 	return tui.Run(ctx, tui.Config{
-		Status:            status,
-		MouseCapture:      application.Config.TUI.Mouse(),
-		PromptHistoryPath: filepath.Join(application.Config.Session.Dir, "prompt-history.json"),
-		StashPath:         filepath.Join(application.Config.Session.Dir, "prompt-stash.json"),
-		PreferencesPath:   filepath.Join(application.Config.Session.Dir, "tui-preferences.json"),
-		Accent:            application.Config.TUI.Accent,
-		Commands:          registry,
-		Chat:              application,
-		Confirmer:         asTUIConfirmer(application.Confirmer),
-		RuleSource:        application.RuleSource,
-		Questioner:        asTUIQuestioner(application.Questioner),
-		PlanMode:          application,
-		SessionHistory:    sessionHistoryAdapter{app: application},
-		SessionManager:    sessionManagerAdapter{app: application},
-		SeedHistory:       seedHistoryFromApp(application),
+		Status:                    status,
+		MouseCapture:              application.Config.TUI.Mouse(),
+		PromptHistoryPath:         filepath.Join(application.Config.Session.Dir, "prompt-history.json"),
+		StashPath:                 filepath.Join(application.Config.Session.Dir, "prompt-stash.json"),
+		PreferencesPath:           filepath.Join(application.Config.Session.Dir, "tui-preferences.json"),
+		Accent:                    application.Config.TUI.Accent,
+		Commands:                  registry,
+		Chat:                      application,
+		Confirmer:                 asTUIConfirmer(application.Confirmer),
+		RuleSource:                application.RuleSource,
+		Questioner:                asTUIQuestioner(application.Questioner),
+		PlanMode:                  application,
+		SessionHistory:            sessionHistoryAdapter{app: application},
+		SessionManager:            sessionManagerAdapter{app: application},
+		OpenSessionManagerOnStart: application.OpenSessionPickerOnStart,
+		SeedHistory:               seedHistoryFromApp(application),
 		// ReloadSessionSeed re-projects the app's history after a /resume switch.
 		// SwitchSession has already swapped application.History() onto the target
 		// session, so this yields exactly the target's conversation for the TUI to

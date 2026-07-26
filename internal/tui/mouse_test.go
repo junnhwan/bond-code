@@ -80,11 +80,20 @@ func TestWelcomeMenuHitAndClick(t *testing.T) {
 		t.Fatal("expected empty timeline")
 	}
 
-	// Locate welcome menu hits by scanning.
+	dock := m.measureBottomDock()
+	layout := CalculateLayout(m.width, m.height, dock.reservedHeight())
+	left, right := welcomeMenuColumnBounds(layout.TimelineW)
+	if right <= left {
+		t.Fatalf("invalid menu bounds left=%d right=%d", left, right)
+	}
+	// Probe X must land inside the painted column (not full-row).
+	menuX := left + (right-left)/2
+
+	// Locate welcome menu hits by scanning the column center.
 	var menuHits []mouseHit
 	var menuYs []int
 	for y := 0; y < m.height; y++ {
-		hit := m.resolveMouseHit(20, y)
+		hit := m.resolveMouseHit(menuX, y)
 		if hit.kind == mouseHitWelcomeMenu {
 			menuHits = append(menuHits, hit)
 			menuYs = append(menuYs, y)
@@ -92,8 +101,6 @@ func TestWelcomeMenuHitAndClick(t *testing.T) {
 	}
 	if len(menuHits) < 3 {
 		// Geometry fallback: pure welcome rows must still map labels.
-		dock := m.measureBottomDock()
-		layout := CalculateLayout(m.width, m.height, dock.reservedHeight())
 		rows := welcomeMenuRowYs(WelcomeChromeInput{
 			Width: layout.TimelineW, Height: layout.TimelineH,
 			Project: "bond-code", Version: "v1.0.0",
@@ -103,7 +110,7 @@ func TestWelcomeMenuHitAndClick(t *testing.T) {
 		}
 		// Absolute Y = body start (0) + row
 		for _, row := range rows {
-			hit := m.resolveMouseHit(20, row)
+			hit := m.resolveMouseHit(menuX, row)
 			if hit.kind == mouseHitWelcomeMenu {
 				menuHits = append(menuHits, hit)
 				menuYs = append(menuYs, row)
@@ -122,7 +129,7 @@ func TestWelcomeMenuHitAndClick(t *testing.T) {
 		y = menuYs[1]
 	}
 	next, _ := m.handleMouseMsg(tea.MouseMsg{
-		X: 20, Y: y,
+		X: menuX, Y: y,
 		Action: tea.MouseActionMotion,
 		Button: tea.MouseButtonNone,
 	})
@@ -135,11 +142,65 @@ func TestWelcomeMenuHitAndClick(t *testing.T) {
 
 	// Click fires runCommand path (unknown without registry → timeline block or no panic).
 	next, _ = next.handleMouseMsg(tea.MouseMsg{
-		X: 20, Y: y,
+		X: menuX, Y: y,
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonLeft,
 	})
 	_ = next.View()
+}
+
+// TestWelcomeMenuHitIsColumnOnly pins that padding left/right of the centered
+// menu bar is not interactive — only the painted column cells count.
+func TestWelcomeMenuHitIsColumnOnly(t *testing.T) {
+	m := NewModel(Config{
+		MouseCapture: true,
+		Status:       Status{ProjectRoot: "bond-code", Model: "fake"},
+	}).SetSize(100, 30)
+
+	dock := m.measureBottomDock()
+	layout := CalculateLayout(m.width, m.height, dock.reservedHeight())
+	left, right := welcomeMenuColumnBounds(layout.TimelineW)
+	rows := welcomeMenuRowYs(WelcomeChromeInput{
+		Width: layout.TimelineW, Height: layout.TimelineH,
+		Project: "bond-code", Version: "v1.0.0", Model: "fake",
+	})
+	if len(rows) < 1 {
+		t.Fatal("expected welcome menu rows")
+	}
+	y := rows[0]
+
+	// Inside column → hit.
+	inside := m.resolveMouseHit(left, y)
+	if inside.kind != mouseHitWelcomeMenu {
+		t.Fatalf("x=%d (column start) want welcome menu, got kind=%d", left, inside.kind)
+	}
+	inside = m.resolveMouseHit(right-1, y)
+	if inside.kind != mouseHitWelcomeMenu {
+		t.Fatalf("x=%d (column end-1) want welcome menu, got kind=%d", right-1, inside.kind)
+	}
+
+	// Outside column on the same row → not a menu hit.
+	if left > 0 {
+		outside := m.resolveMouseHit(left-1, y)
+		if outside.kind == mouseHitWelcomeMenu {
+			t.Fatalf("x=%d (left of column) must not hit welcome menu", left-1)
+		}
+	}
+	if right < layout.TimelineW {
+		outside := m.resolveMouseHit(right, y)
+		if outside.kind == mouseHitWelcomeMenu {
+			t.Fatalf("x=%d (right of column) must not hit welcome menu", right)
+		}
+	}
+	// Far left gutter of a wide terminal must stay inert.
+	far := m.resolveMouseHit(0, y)
+	if far.kind == mouseHitWelcomeMenu {
+		t.Fatal("x=0 on menu row must not hit welcome menu")
+	}
+	far = m.resolveMouseHit(layout.TimelineW-1, y)
+	if far.kind == mouseHitWelcomeMenu {
+		t.Fatal("far-right cell on menu row must not hit welcome menu")
+	}
 }
 
 func TestPermissionOptionIndexAt(t *testing.T) {

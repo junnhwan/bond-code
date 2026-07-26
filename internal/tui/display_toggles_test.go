@@ -53,8 +53,8 @@ func TestToggleToolDetailsDefaultsOnAndPersists(t *testing.T) {
 	}
 }
 
-// TestRenderReasoningRespectsToggle checks the folded preview vs the expanded
-// full render differ and the toggle selects between them.
+// TestExpandedReasoningFromPersistedPreferenceOmitsRemovedLeaderHint checks
+// show_thinking=true paints full body without legacy leader-fold chrome.
 func TestExpandedReasoningFromPersistedPreferenceOmitsRemovedLeaderHint(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prefs.json")
 	if err := saveTUIPreferences(path, tuiPreferences{ShowThinking: true}); err != nil {
@@ -69,6 +69,9 @@ func TestExpandedReasoningFromPersistedPreferenceOmitsRemovedLeaderHint(t *testi
 	if !contains(rendered, "expanded") {
 		t.Fatalf("expanded reasoning should retain a truthful state label, got %q", rendered)
 	}
+	if !contains(rendered, "first thought") {
+		t.Fatalf("show_thinking on must include body, got %q", rendered)
+	}
 	for _, notWant := range []string{"<leader>", "leader", "to fold"} {
 		if contains(rendered, notWant) {
 			t.Fatalf("expanded reasoning leaked removed fold route %q: %q", notWant, rendered)
@@ -77,23 +80,24 @@ func TestExpandedReasoningFromPersistedPreferenceOmitsRemovedLeaderHint(t *testi
 }
 
 func TestRenderReasoningRespectsToggle(t *testing.T) {
+	// CC mode A: default fully hidden; showThinking paints full body.
 	body := "line one\nline two\nline three\nline four"
 	off := NewModel(Config{})
-	folded := off.renderReasoning(body, 60)
+	hidden := off.renderReasoning(body, 60)
+	if hidden != "" {
+		t.Fatalf("default must hide thinking entirely (CC), got %q", hidden)
+	}
 	on := NewModel(Config{})
 	on.showThinking = true
 	expanded := on.renderReasoning(body, 60)
-	if folded == expanded {
-		t.Fatal("expected folded and expanded reasoning to differ")
-	}
-	if !contains(folded, "· 4 lines") {
-		t.Fatalf("folded preview should report line count, got: %q", folded)
-	}
 	if !contains(expanded, "line four") {
-		t.Fatalf("expanded render should include the full body, got: %q", expanded)
+		t.Fatalf("showThinking on should include the full body, got: %q", expanded)
 	}
-	if contains(folded, "line four") {
-		t.Fatal("folded preview should NOT include the 4th line")
+	// Ctrl+O verbose densifies tools only — historical thinking stays hidden.
+	viaVerbose := NewModel(Config{})
+	viaVerbose.verbose = true
+	if viaVerbose.renderReasoning(body, 60) != "" {
+		t.Fatal("verbose/Ctrl+O must not reveal historical thinking")
 	}
 }
 

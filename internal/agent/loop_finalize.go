@@ -55,7 +55,7 @@ func (l *Loop) finalizeWithReminderAvoiding(ctx context.Context, messages []llm.
 		MaxRepeatedTextSubstrings: l.cfg.MaxRepeatedTextSubstrings,
 	}
 	textGuard := newTextGuard(guardCfg)
-	reasoningGuard := newTextGuard(guardCfg)
+	reasoningGuard := newTextGuard(reasoningTextGuardConfig(guardCfg))
 	for chunk := range chunks {
 		if degenerate {
 			continue

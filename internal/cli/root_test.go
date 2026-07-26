@@ -85,7 +85,34 @@ func TestRootFlagsPropagateDebugAndResume(t *testing.T) {
 		t.Errorf("expected root --debug=full to reach Options as VerboseFull, got %v", captured.Debug)
 	}
 	if captured.ResumeSessionID != "session-xyz" {
-		t.Errorf("expected root --resume to reach Options as session-xyz, got %q", captured.ResumeSessionID)
+		t.Errorf("expected root --resume <id> to reach Options as session-xyz, got %q", captured.ResumeSessionID)
+	}
+	if captured.OpenSessionPicker {
+		t.Error("expected --resume <id> not to open the session picker")
+	}
+}
+
+func TestRootBareResumeOpensSessionPicker(t *testing.T) {
+	var captured app.Options
+	cmd := newRootCommandWithBootstrapAndTUI(func(opts app.Options) (*app.App, error) {
+		captured = opts
+		return &app.App{OpenSessionPickerOnStart: opts.OpenSessionPicker}, nil
+	}, func(ctx context.Context, application *app.App) error {
+		if !application.OpenSessionPickerOnStart {
+			t.Fatal("expected App to carry OpenSessionPickerOnStart from bare --resume")
+		}
+		return nil
+	})
+	cmd.SetArgs([]string{"--resume"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if captured.ResumeSessionID != "" {
+		t.Errorf("bare --resume should not set ResumeSessionID, got %q", captured.ResumeSessionID)
+	}
+	if !captured.OpenSessionPicker {
+		t.Fatal("bare --resume should set OpenSessionPicker")
 	}
 }
 

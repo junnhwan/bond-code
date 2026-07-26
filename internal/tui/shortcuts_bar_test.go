@@ -13,6 +13,9 @@ func TestShortcutsBarIdlePrompt(t *testing.T) {
 	if !strings.Contains(got, "tab") {
 		t.Fatalf("idle hints should mention tab, got %q", got)
 	}
+	if !strings.Contains(got, "ctrl+j") || !strings.Contains(got, "newline") {
+		t.Fatalf("idle hints should advertise ctrl+j newline, got %q", got)
+	}
 }
 
 func TestShortcutsBarBusyShowsCancel(t *testing.T) {

@@ -83,3 +83,34 @@ func TestTextGuardIgnoresEmptyContent(t *testing.T) {
 		t.Fatal("empty chunk must not trip")
 	}
 }
+
+func TestReasoningTextGuardConfigDisablesPhraseGate(t *testing.T) {
+	cfg := reasoningTextGuardConfig(textGuardConfig{
+		MaxRepeatedTextChunks:     16,
+		MaxRepeatedTextSubstrings: 3,
+	})
+	if cfg.MaxRepeatedTextSubstrings != 0 {
+		t.Fatalf("reasoning must disable Gate B, got %d", cfg.MaxRepeatedTextSubstrings)
+	}
+	if cfg.MaxRepeatedTextChunks < 64 {
+		t.Fatalf("reasoning Gate A threshold too low: %d", cfg.MaxRepeatedTextChunks)
+	}
+}
+
+func TestReasoningTextGuardDoesNotTripOnRestatedThoughts(t *testing.T) {
+	// Healthy thinking often restates the user ask and options — Gate B used
+	// to cancel these mid-stream. With reasoning config it must stay quiet.
+	g := newTextGuard(reasoningTextGuardConfig(textGuardConfig{
+		MaxRepeatedTextChunks:     16,
+		MaxRepeatedTextSubstrings: 3,
+	}))
+	// A phrase that would trip Gate B at threshold 3 on answer-text defaults.
+	phrase := strings.Repeat("The user wants a directory listing. ", 4)
+	cum := 0
+	for i := 0; i < 6; i++ {
+		cum += len(phrase)
+		if d, _ := g.Saw(phrase, cum); d {
+			t.Fatalf("restated thinking falsely tripped at iteration %d", i)
+		}
+	}
+}

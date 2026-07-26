@@ -51,24 +51,21 @@ func TestCompactToolRowWhenCollapsed(t *testing.T) {
 	}
 }
 
-func TestThinkingFoldHidesBody(t *testing.T) {
+func TestThinkingDefaultHiddenCCStyle(t *testing.T) {
+	// Claude Code mode A: default paints nothing; showThinking paints full body.
 	body := "first thought line\nsecond thought line\nthird line of reasoning"
-	// Folded (default showThinking=false): header only, no body lines.
-	preview := renderReasoningPreviewLines(body, 60)
-	joined := ansi.Strip(strings.Join(preview, "\n"))
-	if !strings.Contains(joined, "thinking") {
-		t.Fatalf("expected thinking header, got %q", joined)
+	m := NewModel(Config{})
+	if got := m.renderReasoning(body, 60); got != "" {
+		t.Fatalf("default must hide thinking, got %q", got)
 	}
-	if strings.Contains(joined, "second thought") || strings.Contains(joined, "third line") {
-		t.Fatalf("folded thinking must hide body, got %q", joined)
+	block := Block{Kind: BlockReasoning, ID: "r1", Body: body}
+	if lines := m.renderTimelineBlockLines(block, 60); len(lines) != 0 {
+		t.Fatalf("default timeline must omit thinking lines, got %v", lines)
 	}
-	if !strings.Contains(joined, "folded") {
-		t.Fatalf("expected folded marker, got %q", joined)
-	}
-	// Expanded shows body.
-	full := ansi.Strip(strings.Join(renderReasoningFullLines(body, 60), "\n"))
+	m.showThinking = true
+	full := ansi.Strip(m.renderReasoning(body, 60))
 	if !strings.Contains(full, "first thought") {
-		t.Fatalf("expanded thinking should show body, got %q", full)
+		t.Fatalf("showThinking on should show body, got %q", full)
 	}
 }
 

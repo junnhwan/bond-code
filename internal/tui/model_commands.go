@@ -51,6 +51,11 @@ func (m Model) runCommand(ctx context.Context, prompt string) (Model, tea.Cmd) {
 	}
 	cmd, ok := m.cfg.Commands.Get(registryName)
 	if !ok {
+		// Claude Code: /skill-name expands a user-invocable SKILL.md into the
+		// turn (including disable-model-invocation / user-only skills).
+		if next, teaCmd, handled := m.trySkillSlash(name, args); handled {
+			return next, teaCmd
+		}
 		body := fmt.Sprintf("unknown command: /%s", name)
 		m.timeline = m.timeline.AppendBlock(BlockError, "command", body)
 		return m.markNewOutputBelow(), nil
@@ -67,20 +72,7 @@ func (m Model) runCommand(ctx context.Context, prompt string) (Model, tea.Cmd) {
 		// as if the user had typed the prompt — the .md file is only a template,
 		// never a shell-execution backdoor.
 		expanded := custom.SubstituteArgs(cmd.PromptTemplate, args)
-		if m.agent.Busy {
-			m.agent.QueuedPrompts = append(m.agent.QueuedPrompts, expanded)
-			return m, nil
-		}
-		if m.cfg.Chat == nil {
-			body := "agent is not configured"
-			m.timeline = m.timeline.AppendBlock(BlockError, "/"+name, body)
-			return m.markNewOutputBelow(), nil
-		}
-		m = m.beginUserTurn(expanded)
-		agentPrompt := contextx.ExpandPathMentions(expanded, m.cfg.Status.ProjectRoot)
-		return m, func() tea.Msg {
-			return runAgentMsg{prompt: agentPrompt}
-		}
+		return m.submitExpandedPrompt(expanded)
 	}
 	result, err := cmd.Run(ctx, commandEnv(m.cfg.CommandEnv, m.cfg.Status), args)
 	if err != nil {
@@ -185,6 +177,72 @@ func (m Model) runThemeCommand(args []string) (Model, tea.Cmd) {
 	m.timeline = m.timeline.AppendBlock(BlockCommand, "/theme", body)
 	m = m.pushToast(body, toastSuccess)
 	return m.markNewOutputBelow(), nil
+}
+
+// trySkillSlash expands /<skill-name> [args] into a normal user turn when the
+// name matches a skill. Returns handled=false when no skill exists so the
+// caller can fall through to "unknown command".
+func (m Model) trySkillSlash(name string, args []string) (Model, tea.Cmd, bool) {
+	loader := m.cfg.CommandEnv.SkillLoader
+	if loader == nil {
+		return m, nil, false
+	}
+	argStr := strings.Join(args, " ")
+	content, s, err := loader.ExpandForUser(name, argStr)
+	if err != nil {
+		// Skill exists but is model-only: surface that, don't say "unknown".
+		if s != nil && !s.SlashInvocable() {
+			body := fmt.Sprintf("skill /%s is model-only (user-invocable: false)", name)
+			m.timeline = m.timeline.AppendBlock(BlockError, "/"+name, body)
+			return m.markNewOutputBelow(), nil, true
+		}
+		return m, nil, false
+	}
+	if s == nil || content == "" {
+		return m, nil, false
+	}
+	// Mirror Claude Code command-name markers so the model knows a skill was
+	// already expanded and should not re-call the skill tool for the same name.
+	expanded := formatSkillSlashPrompt(s.Name, argStr, content)
+	next, cmd := m.submitExpandedPrompt(expanded)
+	return next, cmd, true
+}
+
+func formatSkillSlashPrompt(name, args, content string) string {
+	var b strings.Builder
+	b.WriteString("<command-message>The \"/")
+	b.WriteString(name)
+	b.WriteString("\" skill is running</command-message>\n")
+	b.WriteString("<command-name>/")
+	b.WriteString(name)
+	b.WriteString("</command-name>\n")
+	if strings.TrimSpace(args) != "" {
+		b.WriteString("<command-args>")
+		b.WriteString(args)
+		b.WriteString("</command-args>\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(content)
+	return b.String()
+}
+
+// submitExpandedPrompt queues or starts an agent turn from an expanded template
+// or skill body (shared by custom commands and skill slash invoke).
+func (m Model) submitExpandedPrompt(expanded string) (Model, tea.Cmd) {
+	if m.agent.Busy {
+		m.agent.QueuedPrompts = append(m.agent.QueuedPrompts, expanded)
+		return m, nil
+	}
+	if m.cfg.Chat == nil {
+		body := "agent is not configured"
+		m.timeline = m.timeline.AppendBlock(BlockError, "command", body)
+		return m.markNewOutputBelow(), nil
+	}
+	m = m.beginUserTurn(expanded)
+	agentPrompt := contextx.ExpandPathMentions(expanded, m.cfg.Status.ProjectRoot)
+	return m, func() tea.Msg {
+		return runAgentMsg{prompt: agentPrompt}
+	}
 }
 
 func parseSlash(input string) (string, []string) {

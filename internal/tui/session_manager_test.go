@@ -66,6 +66,23 @@ func TestSessionManagerOpensAndLists(t *testing.T) {
 	}
 }
 
+// Bare bondcode --resume should land on the session picker without /resume.
+func TestOpenSessionManagerOnStart(t *testing.T) {
+	mgr := newFakeSessionManager([]SessionInfo{
+		{ID: "s1", Title: "prior chat", Active: true},
+	})
+	model := NewModel(Config{
+		SessionManager:            mgr,
+		OpenSessionManagerOnStart: true,
+	})
+	if !model.overlay.active() || model.overlay.kind != overlaySessions {
+		t.Fatalf("expected cold-start sessions overlay, got kind=%v active=%v", model.overlay.kind, model.overlay.active())
+	}
+	if len(model.overlay.sessions.entries) != 1 {
+		t.Fatalf("expected picker to load sessions, got %d", len(model.overlay.sessions.entries))
+	}
+}
+
 // TestSessionManagerWithoutControllerDegradesGracefully checks the overlay opens
 // with an in-view error when no manager is wired (nil), never a crash.
 func TestSessionManagerWithoutControllerDegradesGracefully(t *testing.T) {

@@ -183,9 +183,21 @@ func (m Model) applyTerminalEvent(event agent.Event, hadAssistantLive bool) Mode
 		m.timeline = m.timeline.AppendBlock(BlockError, "agent error", body)
 		return m.markNewOutputBelow()
 	case agent.EventTextDegeneration:
+		// Soft recovery cue: status + toast. Do not dump a long "text guard"
+		// command block into the transcript — it looks like a hard error and
+		// crowds the tool/answer audit trail (especially on reasoning false trips).
 		m.timeline = m.timeline.UpdateAgentStatus("working", "recovering from repeated output", eventTime(event))
-		body := firstNonEmpty(event.Message, "text degeneration circuit breaker tripped; recovering")
-		m.timeline = m.timeline.AppendBlock(BlockCommand, "text guard", body)
+		body := firstNonEmpty(event.Message, "repeated output detected; recovering")
+		// Keep a structural boundary so live assistant/reasoning commits cleanly
+		// before recovery continues, but use a short dim notice.
+		notice := body
+		if strings.Contains(strings.ToLower(body), "reasoning") {
+			notice = "thinking loop detected; recovering"
+		} else if strings.Contains(strings.ToLower(body), "degeneration") {
+			notice = "repeated output; recovering"
+		}
+		m.timeline = m.timeline.AppendBlock(BlockCommand, "recovering", notice)
+		m = m.pushToast(notice, toastInfo)
 		return m.markNewOutputBelow()
 	default:
 		return m

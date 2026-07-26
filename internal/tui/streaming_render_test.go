@@ -464,6 +464,78 @@ func TestLiveReasoningBufferDoesNotCrossAssistantOrToolBoundary(t *testing.T) {
 	})
 }
 
+func TestMultiStepReasoningMergesOneBlockAndKeepsAllTools(t *testing.T) {
+	// Full event path: several ReAct steps with thinking between tools must
+	// yield one folded thinking header and every tool row still renderable.
+	model := NewModel(Config{})
+	model.agent.Busy = true
+	model.showToolDetails = true
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventAgentStarted})
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventReasoningChunk, Message: "plan step one\n"})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type: agent.EventToolRequested, ToolName: "read_file", ToolCallID: "c1",
+		Input: `{"path":"a.go"}`,
+	})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type: agent.EventToolResult, ToolName: "read_file", ToolCallID: "c1", Output: "ok-a",
+	})
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventReasoningChunk, Message: "plan step two\n"})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type: agent.EventToolRequested, ToolName: "edit_file", ToolCallID: "c2",
+		Input: `{"path":"b.go"}`,
+	})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type: agent.EventToolResult, ToolName: "edit_file", ToolCallID: "c2", Output: "ok-b",
+	})
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventReasoningChunk, Message: "wrap up\n"})
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventModelChunk, Message: "done answer"})
+	model = model.ApplyAgentEvent(agent.Event{Type: agent.EventAgentFinished, Message: "done answer"})
+
+	blocks := model.timeline.Turns[len(model.timeline.Turns)-1].Blocks
+	var reasoning, tools int
+	var reasonBody string
+	for _, b := range blocks {
+		switch b.Kind {
+		case BlockReasoning:
+			reasoning++
+			reasonBody = b.Body
+		case BlockTool:
+			tools++
+		}
+	}
+	if reasoning != 1 {
+		t.Fatalf("want 1 thinking block after multi-step turn, got %d: %#v", reasoning, blocks)
+	}
+	if tools != 2 {
+		t.Fatalf("want 2 tool rows (not swallowed), got %d: %#v", tools, blocks)
+	}
+	for _, want := range []string{"plan step one", "plan step two", "wrap up"} {
+		if !strings.Contains(reasonBody, want) {
+			t.Fatalf("merged thinking missing %q in %q", want, reasonBody)
+		}
+	}
+
+	lines, _ := model.renderTimelineLines(100)
+	view := ansi.Strip(strings.Join(lines, "\n"))
+	// CC mode A: default hides thinking text; tools must still show.
+	if strings.Contains(view, "plan step one") || strings.Contains(view, "plan step two") {
+		t.Fatalf("default view must hide thinking body:\n%s", view)
+	}
+	// Tool rows use verb/subject chrome (Read/Edit or raw name).
+	if !strings.Contains(view, "a.go") && !strings.Contains(view, "read_file") {
+		t.Fatalf("view missing first tool:\n%s", view)
+	}
+	if !strings.Contains(view, "b.go") && !strings.Contains(view, "edit_file") {
+		t.Fatalf("view missing second tool:\n%s", view)
+	}
+	model.showThinking = true
+	lines, _ = model.renderTimelineLines(100)
+	view = ansi.Strip(strings.Join(lines, "\n"))
+	if !strings.Contains(view, "plan step one") {
+		t.Fatalf("showThinking on must reveal merged thinking:\n%s", view)
+	}
+}
+
 func TestLiveReasoningBufferGuardsBranchedModels(t *testing.T) {
 	base := NewModel(Config{})
 	base.agent.Busy = true
@@ -943,7 +1015,7 @@ func TestTextDegenerationSplitsAssistantBlocks(t *testing.T) {
 
 	blocks := model.timeline.Turns[len(model.timeline.Turns)-1].Blocks
 	if len(blocks) != 3 || blocks[0].Kind != BlockAssistant || blocks[0].Body != "before" ||
-		blocks[1].Kind != BlockCommand || blocks[1].Title != "text guard" || blocks[1].Body != "recovery notice" ||
+		blocks[1].Kind != BlockCommand || blocks[1].Title != "recovering" ||
 		blocks[2].Kind != BlockAssistant || blocks[2].Body != "after" {
 		t.Fatalf("degeneration boundary ordering = %#v", blocks)
 	}

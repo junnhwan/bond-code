@@ -201,10 +201,11 @@ func renderPermissionPanel(event *agent.Event, choice confirmChoice, enteringRej
 			}
 		}
 		lines = append(lines, "", optionBlock)
-		// Space-separated tokens keep "y allow once" discoverable for tests/docs.
-		hint := "y allow once · a always · n reject · r w/ reason"
+		// ↑↓/enter match the vertical list; y/a/n stay as one-shot letter paths.
+		// Keep "y allow once" token for tests/docs discoverability.
+		hint := "↑↓ select · enter confirm · y allow once · a always · n reject · r reason"
 		if !alwaysAvailable {
-			hint = "y allow once · n reject · r w/ reason"
+			hint = "↑↓ select · enter confirm · y allow once · n reject · r reason"
 		}
 		lines = append(lines, dimStyle.Render(hint))
 	}

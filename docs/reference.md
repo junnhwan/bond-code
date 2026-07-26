@@ -15,7 +15,7 @@ Layout: **transcript** → **turn status** (when busy) → **`❯` prompt** (mod
 | Key | Action |
 |-----|--------|
 | `Enter` | Send (queues while agent is busy) |
-| `Shift+Enter` / `Alt+Enter` | Newline (`Alt+Enter` on Windows if Shift+Enter is unavailable) |
+| `Ctrl+J` / `Alt+Enter` / `Shift+Enter` | Newline (`Ctrl+J` is the reliable Windows path; Shift+Enter is often unavailable) |
 | `Tab` | Toggle focus: prompt ↔ scrollback |
 | `Space` | From scrollback (empty draft) → prompt |
 | `Esc` | Close overlay / cancel run / clear draft / leave scrollback |
@@ -23,7 +23,8 @@ Layout: **transcript** → **turn status** (when busy) → **`❯` prompt** (mod
 | `Ctrl+D` | Scrollback: half-page down; empty composer: quit |
 | `Ctrl+U` | Scrollback: half-page up |
 | `Shift+Tab` / `Alt+M` | Toggle normal / plan mode |
-| `Ctrl+O` | Expand/collapse tool details + transcript density |
+| `Ctrl+O` | Expand/compact tool details (paths, output). Does not show historical thinking |
+| `Ctrl+T` | Show/hide full thinking text (default: history hidden; live thinking is one fixed dock line above the prompt) |
 | `Ctrl+R` | Reverse-search prompt history |
 | `Ctrl+Up` | Agent switcher (when sub-agents exist) |
 | `Ctrl+G` | Edit draft in `$EDITOR` / `$VISUAL` |
@@ -39,15 +40,9 @@ Use slash commands (type `/`) or overlays for sessions, permissions, status, and
 
 Default discovery / `/help` order:
 
-`/help` `/clear` `/resume` `/model` `/permissions` `/compact` `/status` `/context` `/memory` `/skills` `/undo` `/export` `/copy` `/retry` `/diff` `/history` `/exit`
+`/help` `/clear` `/resume` `/compact` `/status` `/context` `/memory` `/skills` `/undo` `/export` `/copy` `/retry` `/exit`
 
-Notes:
-
-- `/history` — session timeline / fork-resume browser  
-- `/diff` — file changes in this session  
-- `/permissions [mode]` — view or switch permission mode  
-
-Still runnable but hidden from default discovery: `/new`, `/sessions` (→ `/resume`), `/session`, `/cost`, `/theme`, `/quit`, `/q` (→ `/exit`).
+Still runnable but hidden from default discovery: `/model`, `/permissions`, `/diff`, `/history`, `/new`, `/sessions` (→ `/resume`), `/session`, `/cost`, `/theme`, `/quit`, `/q` (→ `/exit`).
 
 ## Built-in tools
 
@@ -82,7 +77,11 @@ Coding surface stays small: read/edit/search/shell. Git, tests, formatters go th
 | `mailbox_*` | `collaboration.enabled` (default on) |
 | `mcp__<server>__<tool>` | `mcp.enabled` **and** `mcp.inject_tools` |
 
-Skills load from `~/.bondcode/skills` and `<project>/.bondcode/skills` (optional `skills.root`).
+Skills load from `~/.bondcode/skills` and `<project>/.bondcode/skills` (optional `skills.root`):
+
+- **Slash menu**: user-invocable skills appear as `/name` (type `/` to list). User-only skills (`disable-model-invocation: true`) are still slash-runnable.
+- **Model surface**: only model-invocable skills are listed under Available Skills; the model uses the `skill` tool.
+- **`/skills`**: lists all skills with model/user-only counts; long lines wrap in the transcript.
 
 ### Delegation
 
@@ -134,7 +133,14 @@ Mode changes are recorded on the session JSONL before taking effect.
 
 ## Sessions & debug
 
-Day-to-day session work is in the TUI (`/resume`, session manager overlay). Optional power-user CLI (hidden from `bondcode --help`, still invokable by name):
+Resume from the shell without typing `/resume` first:
+
+```powershell
+bondcode --resume              # open TUI on the session picker
+bondcode --resume <session-id> # open TUI already on that conversation
+```
+
+Day-to-day session work is also in the TUI (`/resume`, session manager overlay). Optional power-user CLI (hidden from `bondcode --help`, still invokable by name):
 
 ```powershell
 bondcode session list
@@ -159,6 +165,8 @@ Tools inject only when both `mcp.enabled` and `mcp.inject_tools` are true, as `m
 | Entry | Role |
 |-------|------|
 | `bondcode` | Open the interactive TUI (main product path) |
+| `bondcode --resume` | Open TUI on the session picker |
+| `bondcode --resume <id>` | Open TUI already on that conversation |
 | `bondcode config show\|example` | Inspect config |
 | `bondcode headless` | JSON-line stdin/stdout driver (embedding / automation) |
 | Hidden: `session`, `mcp`, slash-equivalent names | Power-user / debug |

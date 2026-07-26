@@ -142,12 +142,12 @@ func TestLiveStreamLineGated(t *testing.T) {
 // call sites explicit.
 func timeNowForTest() time.Time { return time.Time{} }
 
-func TestReasoningLeftRightExpandsAtDefaultDensity(t *testing.T) {
-	// Default showThinking=false: left/right on a selected reasoning entry must
-	// reveal body (was a no-op when expanded := showThinking && !folded).
+func TestReasoningHiddenByDefaultCtrlOKeepsHiddenCtrlTReveals(t *testing.T) {
+	// CC mode A: default hides thinking entirely (not even selectable).
+	// Ctrl+O densifies tools only; Ctrl+T reveals historical thinking.
 	m := NewModel(Config{}).SetSize(80, 30)
-	if m.showThinking {
-		t.Fatal("setup: default showThinking must be false")
+	if m.showThinking || m.verbose {
+		t.Fatal("setup: default must hide thinking")
 	}
 	m.timeline = m.timeline.StartUserTurn("think please")
 	m.timeline = m.timeline.AppendBlock(BlockReasoning, "thinking", "alpha thought line\nbeta thought line\ngamma thought line")
@@ -159,54 +159,48 @@ func TestReasoningLeftRightExpandsAtDefaultDensity(t *testing.T) {
 	m.timeline.Turns[0] = turn
 	m.timeline.Version++
 
-	// Select the reasoning entry via real Update path (Tab + arrows).
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = next.(Model)
-	if m.focus != FocusScrollback {
-		t.Fatalf("want scrollback, got %s", m.focus)
-	}
-	// Move selection onto the reasoning block.
-	for i, e := range m.scrollEntries() {
-		if e.key == "reason-1" || e.kind == string(BlockReasoning) {
-			m.scrollSel = i
-			break
+	for _, e := range m.scrollEntries() {
+		if e.kind == string(BlockReasoning) {
+			t.Fatalf("hidden thinking must not be selectable, got %+v", e)
 		}
 	}
-	entry, ok := m.selectedScrollEntry()
-	if !ok || entry.kind != string(BlockReasoning) {
-		t.Fatalf("setup: must select reasoning entry, got %+v ok=%v", entry, ok)
+	hiddenLines := m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80)
+	if len(hiddenLines) != 0 {
+		t.Fatalf("default must paint zero thinking lines, got %v", hiddenLines)
 	}
 
-	// Folded at default density: body hidden.
-	foldedLines := m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80)
-	foldedView := ansi.Strip(strings.Join(foldedLines, "\n"))
-	if strings.Contains(foldedView, "beta thought") {
-		t.Fatalf("default density must hide body, got %q", foldedView)
+	m = m.toggleExpandedTranscript()
+	if !m.verbose {
+		t.Fatal("Ctrl+O path must enable verbose tool details")
+	}
+	if m.reasoningVisible("reason-1") {
+		t.Fatal("Ctrl+O must not reveal historical thinking")
+	}
+	if len(m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80)) != 0 {
+		t.Fatal("verbose tool mode must still paint zero thinking lines")
 	}
 
-	// Left expands via real Update path.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	m = next.(Model)
-	if !m.reasoningExpanded("reason-1") {
-		t.Fatal("left should expand reasoning at default showThinking=false")
+	m = m.toggleThinking()
+	if !m.showThinking {
+		t.Fatal("Ctrl+T path must enable showThinking")
+	}
+	if !m.reasoningVisible("reason-1") {
+		t.Fatal("showThinking must make thinking visible")
 	}
 	expandedLines := m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80)
 	expandedView := ansi.Strip(strings.Join(expandedLines, "\n"))
 	if !strings.Contains(expandedView, "alpha thought") {
-		t.Fatalf("expanded reasoning must show body, got %q", expandedView)
+		t.Fatalf("Ctrl+T must show thinking body, got %q", expandedView)
 	}
 	if strings.Contains(expandedView, "(folded)") {
 		t.Fatalf("expanded view must not say folded, got %q", expandedView)
 	}
 
-	// Right collapses again.
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m = next.(Model)
-	if m.reasoningExpanded("reason-1") {
-		t.Fatal("right should re-collapse reasoning")
+	m = m.toggleThinking()
+	if m.showThinking {
+		t.Fatal("second Ctrl+T must hide thinking again")
 	}
-	reFolded := ansi.Strip(strings.Join(m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80), "\n"))
-	if strings.Contains(reFolded, "beta thought") {
-		t.Fatalf("re-collapsed must hide body, got %q", reFolded)
+	if len(m.renderTimelineBlockLines(m.timeline.Turns[0].Blocks[0], 80)) != 0 {
+		t.Fatal("showThinking off must hide thinking again")
 	}
 }

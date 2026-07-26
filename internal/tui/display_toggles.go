@@ -1,13 +1,13 @@
 package tui
 
-// Display-density toggles (Phase 2.3). Three independent, persisted switches
-// that let the user trade information density against clutter on long sessions,
-// each surfaced through the command palette and (for the highest-value one,
-// thinking) a direct <leader>t binding.
+// Display-density toggles (Phase 2.3). Independent, persisted switches that
+// trade information density against clutter on long sessions.
 //
-//   - showThinking     — render extended-thinking blocks in full vs a folded
-//                        3-line preview. Default off (preview); the preview is
-//                        enough to surface the process, the full text is verbose.
+//   - showThinking     — Claude Code-aligned: default OFF hides *committed*
+//                        thinking in scrollback. Live thinking is a single
+//                        fixed dock line ("thinking · …") so scrollback does
+//                        not jitter; On (Ctrl+T) paints full thinking text
+//                        (history + multi-line live). Ctrl+O does not flip this.
 //   - showTimestamps   — annotate each turn with its start/end wall-clock times.
 //                        Default off; useful when reviewing a replay, noisy live.
 //   - showToolDetails  — render completed tool-activity lines. Default ON so

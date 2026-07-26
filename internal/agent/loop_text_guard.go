@@ -50,6 +50,31 @@ func newTextGuard(cfg textGuardConfig) *textGuard {
 	return &textGuard{cfg: cfg}
 }
 
+// reasoningTextGuardConfig loosens the breaker for extended-thinking streams.
+//
+// Visible-answer defaults (16 identical chunks / 3 substring hits) are tuned for
+// stuck token loops in final text. Reasoning is *supposed* to restate goals,
+// re-list options, and echo the user ask — Gate B false-trips long healthy
+// thinking and cancels the stream mid-way ("recovering"). Keep only Gate A with
+// a higher consecutive-identical threshold so true token stuck-loops still die
+// without chopping normal multi-paragraph thinking.
+func reasoningTextGuardConfig(cfg textGuardConfig) textGuardConfig {
+	chunks := cfg.MaxRepeatedTextChunks
+	if chunks <= 0 {
+		chunks = 16
+	}
+	// Reasoning deltas are often tiny (1–4 tokens). 16 identical chunks is too
+	// easy to hit on a repeated connector; require a longer stuck run.
+	const minReasoningChunkRun = 64
+	if chunks < minReasoningChunkRun {
+		chunks = minReasoningChunkRun
+	}
+	return textGuardConfig{
+		MaxRepeatedTextChunks:     chunks,
+		MaxRepeatedTextSubstrings: 0, // disable phrase gate on reasoning
+	}
+}
+
 const (
 	// textDegenerationProbeLen is the trailing slice of the answer checked for
 	// an earlier occurrence. 48 chars is long enough that legitimate prose or

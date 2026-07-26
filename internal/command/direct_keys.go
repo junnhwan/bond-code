@@ -12,12 +12,13 @@ type DirectKeyDescriptor struct {
 
 var builtinDirectKeyDescriptors = []DirectKeyDescriptor{
 	{ID: "key.submit", DisplayShortcut: "Enter", Description: "submit prompt", ExecutionTarget: "tui-local.submit"},
-	{ID: "key.newline", DisplayShortcut: "Shift+Enter / Alt+Enter", Description: "insert newline (Alt+Enter is the Windows fallback)", ExecutionTarget: "tui-local.composer.newline"},
+	{ID: "key.newline", DisplayShortcut: "Ctrl+J / Alt+Enter / Shift+Enter", Description: "insert newline (Ctrl+J is the reliable Windows path)", ExecutionTarget: "tui-local.composer.newline"},
 	{ID: "key.escape", DisplayShortcut: "Esc", Description: "cancel run or dismiss active overlay", ExecutionTarget: "tui-local.cancel"},
 	{ID: "key.interrupt", DisplayShortcut: "Ctrl+C", Description: "interrupt; repeated press exits", ExecutionTarget: "tui-local.interrupt"},
 	{ID: "key.exit-empty", DisplayShortcut: "Ctrl+D", Description: "exit when input is empty", ExecutionTarget: "tui-local.exit.empty"},
 	{ID: "key.mode-cycle", DisplayShortcut: "Shift+Tab / Alt+M", Description: "cycle plan/normal mode (Alt+M is the Windows fallback)", ExecutionTarget: "tui-local.mode.cycle"},
-	{ID: "key.details", DisplayShortcut: "Ctrl+O", Description: "toggle expanded transcript and tool details", ExecutionTarget: "tui-local.view.verbose"},
+	{ID: "key.details", DisplayShortcut: "Ctrl+O", Description: "toggle expanded tool details", ExecutionTarget: "tui-local.view.verbose"},
+	{ID: "key.thinking", DisplayShortcut: "Ctrl+T", Description: "toggle historical thinking blocks", ExecutionTarget: "tui-local.view.thinking"},
 	{ID: "key.history-search", DisplayShortcut: "Ctrl+R", Description: "search prompt history in reverse", ExecutionTarget: "tui-local.history.reverse"},
 	{ID: "key.agent-switcher", DisplayShortcut: "Ctrl+Up", Description: "open Agent switcher", ExecutionTarget: "tui-local.agent.switcher"},
 	{ID: "key.external-editor", DisplayShortcut: "Ctrl+G", Description: "open draft in external editor", ExecutionTarget: "tui-local.prompt.editor"},

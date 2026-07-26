@@ -16,6 +16,7 @@ import (
 	"github.com/junnhwan/bond-code/internal/command"
 	commandbuiltin "github.com/junnhwan/bond-code/internal/command/builtin"
 	"github.com/junnhwan/bond-code/internal/safety"
+	"github.com/junnhwan/bond-code/internal/skill"
 )
 
 func TestModelViewRendersWorkspaceRegions(t *testing.T) {
@@ -1397,6 +1398,8 @@ func TestEnterOnSlashSuggestionRunsCommandImmediately(t *testing.T) {
 	model = model.SetSize(100, 24)
 	model.composer.Input.SetValue("/")
 	model.composer.Suggestions.Show("")
+	// Select the builtin status row (not whatever initialSelected is).
+	selectSuggestionNamed(t, model.composer.Suggestions, "status")
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m := updated.(Model)
@@ -1407,6 +1410,115 @@ func TestEnterOnSlashSuggestionRunsCommandImmediately(t *testing.T) {
 	}
 	if strings.TrimSpace(m.composer.Input.Value()) != "" {
 		t.Fatalf("expected input cleared after run, got %q", m.composer.Input.Value())
+	}
+}
+
+// selectSuggestionNamed moves the typeahead highlight onto name under the
+// list's current filter (must match getCommandFilter at Enter time).
+func selectSuggestionNamed(t *testing.T, sl *SuggestionList, name string) {
+	t.Helper()
+	if sl == nil {
+		t.Fatal("nil suggestion list")
+	}
+	visible := sl.GetVisible(sl.filter)
+	for i, item := range visible {
+		if item.Name == name {
+			sl.selected = i
+			return
+		}
+	}
+	t.Fatalf("suggestion %q not in filtered list (%q): %#v", name, sl.filter, visible)
+}
+
+func TestEnterOnSkillSuggestionCompletesWithoutSubmit(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkill(t, root, "grilling", "description: grill plans\n", "Grill $ARGUMENTS")
+	loader := skill.NewLoaderFromRoot(root)
+	registry := command.NewRegistry()
+	model := NewModel(Config{
+		Commands:   registry,
+		CommandEnv: command.Env{SessionID: "s", ProjectRoot: ".", SkillLoader: loader},
+		Chat:       stubChat{},
+	})
+	model = model.SetSize(100, 24)
+	model.composer.Suggestions = NewSuggestionListWithSkills(registry, loader)
+	model.composer.Input.SetValue("/grill")
+	model.composer.Suggestions.Show("grill")
+	selectSuggestionNamed(t, model.composer.Suggestions, "grilling")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m := updated.(Model)
+	got := m.composer.Input.Value()
+	if got != "/grilling " {
+		t.Fatalf("skill Enter should only complete into composer, got %q", got)
+	}
+	if len(m.timeline.Turns) != 0 {
+		t.Fatalf("skill Enter must not submit a turn yet, turns=%d", len(m.timeline.Turns))
+	}
+	if m.composer.Suggestions != nil && m.composer.Suggestions.IsVisible() {
+		t.Fatal("suggestion menu should hide after accept")
+	}
+
+	// User appends a free-text prompt, then Enter submits the skill with args.
+	m.composer = m.composer.setValue("/grilling review this plan")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected skill submit to start an agent run")
+	}
+	if len(m.timeline.Turns) == 0 {
+		t.Fatal("expected skill turn after second Enter")
+	}
+	body := m.timeline.Turns[len(m.timeline.Turns)-1].User.Body
+	if !strings.Contains(body, "review this plan") {
+		t.Fatalf("expanded skill should carry user args, body:\n%s", body)
+	}
+}
+
+func TestEnterOnCustomPromptSuggestionCompletesWithoutSubmit(t *testing.T) {
+	registry := command.NewRegistry()
+	if err := registry.Register(command.Command{
+		Name:           "review",
+		Description:    "Review changes",
+		PromptTemplate: "Review these files: $ARGUMENTS",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	model := NewModel(Config{
+		Commands:   registry,
+		CommandEnv: command.Env{SessionID: "s", ProjectRoot: "."},
+		Chat:       stubChat{},
+	})
+	model = model.SetSize(100, 24)
+	model.composer.Suggestions = NewSuggestionList(registry)
+	model.composer.Input.SetValue("/rev")
+	model.composer.Suggestions.Show("rev")
+	selectSuggestionNamed(t, model.composer.Suggestions, "review")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m := updated.(Model)
+	if got := m.composer.Input.Value(); got != "/review " {
+		t.Fatalf("custom prompt Enter should only complete, got %q", got)
+	}
+	if len(m.timeline.Turns) != 0 {
+		t.Fatalf("custom prompt must not auto-submit, turns=%d", len(m.timeline.Turns))
+	}
+}
+
+func TestSlashSuggestionAutoSubmitsPolicy(t *testing.T) {
+	if !slashSuggestionAutoSubmits(Suggestion{Name: "status", Source: "builtin"}, nil) {
+		t.Fatal("builtin should auto-submit")
+	}
+	if slashSuggestionAutoSubmits(Suggestion{Name: "grilling", Source: "skill"}, nil) {
+		t.Fatal("skill must not auto-submit")
+	}
+	if slashSuggestionAutoSubmits(Suggestion{Name: "review", Source: "custom"}, nil) {
+		t.Fatal("custom must not auto-submit")
+	}
+	registry := command.NewRegistry()
+	_ = registry.Register(command.Command{Name: "review", PromptTemplate: "x $ARGUMENTS"})
+	if slashSuggestionAutoSubmits(Suggestion{Name: "review", Source: "builtin"}, registry) {
+		t.Fatal("prompt-template registry command must not auto-submit")
 	}
 }
 
@@ -1999,31 +2111,40 @@ func TestHighRiskConfirmationArrowKeysCycleAndMatchVisualDirection(t *testing.T)
 		Message:  "run command",
 		Input:    `{"command":"rm -rf tmp"}`,
 	})
-	// High-risk defaults to No (the safe choice); the panel renders [Yes | No]
-	// left-to-right. Arrow direction must match the visual layout, and the
-	// highlight must cycle at the ends instead of sticking — the old behavior
-	// ("Right locks on Yes, Left locks on No") frustrated users: the arrows
-	// felt reversed vs. the screen and never cycled.
+	// High-risk defaults to No (safe); panel is vertical Yes / No top→bottom.
+	// ↑/← move up the list; ↓/→ move down; both wrap at the ends.
 
-	// From No (right edge): Left moves leftward to Yes.
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	// From No (bottom): Up moves to Yes.
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice != choiceOnce {
+		t.Fatalf("Up from No should move to Yes, got %v", model.agent.ConfirmChoice)
+	}
+	// Up again past the top wraps to No.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice == choiceOnce {
+		t.Fatalf("Up past Yes should wrap to No, got %v", model.agent.ConfirmChoice)
+	}
+	// From No (bottom): Down wraps to Yes (top).
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice != choiceOnce {
+		t.Fatalf("Down from No should wrap to Yes, got %v", model.agent.ConfirmChoice)
+	}
+	// Down from Yes moves to No.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice == choiceOnce {
+		t.Fatalf("Down from Yes should move to No, got %v", model.agent.ConfirmChoice)
+	}
+
+	// Left/Right remain aliases of Up/Down for older muscle memory.
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	model = updated.(Model)
 	if model.agent.ConfirmChoice != choiceOnce {
 		t.Fatalf("Left from No should move to Yes, got %v", model.agent.ConfirmChoice)
 	}
-	// Left again past the left edge wraps to No (right edge).
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	model = updated.(Model)
-	if model.agent.ConfirmChoice == choiceOnce {
-		t.Fatalf("Left past Yes should wrap to No, got %v", model.agent.ConfirmChoice)
-	}
-	// From No (right edge): Right wraps to Yes (left edge).
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
-	model = updated.(Model)
-	if model.agent.ConfirmChoice != choiceOnce {
-		t.Fatalf("Right from No should wrap to Yes, got %v", model.agent.ConfirmChoice)
-	}
-	// Right from Yes moves rightward to No.
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRight})
 	model = updated.(Model)
 	if model.agent.ConfirmChoice == choiceOnce {
@@ -2040,6 +2161,51 @@ func TestHighRiskConfirmationArrowKeysCycleAndMatchVisualDirection(t *testing.T)
 	model = updated.(Model)
 	if model.agent.ConfirmChoice == choiceOnce {
 		t.Fatal("Tab should toggle from Yes to No")
+	}
+}
+
+func TestPermissionPanelUpDownSelectsAndEnterConfirms(t *testing.T) {
+	confirmer := NewConfirmer()
+	approved := make(chan bool, 1)
+	go func() {
+		ok, _ := confirmer.Confirm(context.Background(), confirmationRequestForRisk("medium"))
+		approved <- ok
+	}()
+	// Wait until Confirm is blocked on the TUI response channel.
+	requestReady := make(chan struct{})
+	waitForPendingConfirmation(t, confirmer, requestReady)
+	<-requestReady
+
+	model := NewModel(Config{Confirmer: confirmer, RuleSource: nil})
+	model = model.ApplyAgentEvent(agent.Event{
+		Type:     agent.EventToolConfirmationRequested,
+		ToolName: "write_file",
+		Risk:     "medium",
+		Message:  "write file",
+		Input:    `{"path":"a.go"}`,
+	})
+	// Medium defaults to Allow once; Always is hidden without RuleSource so
+	// Down jumps Allow once → Reject.
+	if model.agent.ConfirmChoice != choiceOnce {
+		t.Fatalf("medium default choice = %v, want once", model.agent.ConfirmChoice)
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice != choiceReject {
+		t.Fatalf("Down should select Reject when Always is unavailable, got %v", model.agent.ConfirmChoice)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	model = updated.(Model)
+	if model.agent.ConfirmChoice != choiceOnce {
+		t.Fatalf("Up should return to Allow once, got %v", model.agent.ConfirmChoice)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.agent.Pending != nil {
+		t.Fatal("Enter should confirm the highlighted Allow once choice")
+	}
+	if got := <-approved; !got {
+		t.Fatal("expected Allow once + Enter to approve")
 	}
 }
 
@@ -2062,19 +2228,22 @@ func TestEnterDoesNotSubmitPromptWhileConfirmationIsPending(t *testing.T) {
 		Input:    `{"path":"README.md"}`,
 	})
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	next := updated.(Model)
-	if cmd != nil {
-		t.Fatal("expected Enter in confirmation state not to submit a prompt")
-	}
-	if next.agent.Pending == nil {
-		t.Fatal("expected Enter in confirmation state to keep confirmation pending")
+	// Enter confirms the highlighted permission row (Allow once by default).
+	// It must never submit the composer draft as a new user turn.
+	if next.agent.Pending != nil {
+		t.Fatal("expected Enter to confirm the highlighted permission choice")
 	}
 	if got := next.inputValue(); got != "do not submit" {
-		t.Fatalf("expected Enter in confirmation state to preserve prompt input, got %q", got)
+		t.Fatalf("expected Enter on permission to preserve prompt input, got %q", got)
 	}
-	if len(next.timeline.Turns) != 1 || strings.TrimSpace(next.timeline.Turns[0].User.Body) != "" {
-		t.Fatalf("expected no submitted user prompt while confirmation is pending, got %#v", next.timeline)
+	if len(next.timeline.Turns) != 1 {
+		t.Fatalf("expected no new user turn from Enter on permission, got %#v", next.timeline)
+	}
+	if body := strings.TrimSpace(next.timeline.Turns[0].User.Body); body != "" && body != "do not submit" {
+		// User.Body is empty until submit; permission must not StartUserTurn.
+		t.Fatalf("unexpected user turn body while confirming: %q", body)
 	}
 }
 

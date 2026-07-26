@@ -120,7 +120,10 @@ func TestTextDegenerationBreakerDoesNotTripOnNormalOutput(t *testing.T) {
 // and enter the bounded no-tools recovery path instead of consuming the whole
 // output budget.
 func TestReasoningDegenerationBreakerRecoversFromRepeatedChunks(t *testing.T) {
-	degenerated := make([]llm.Chunk, 50)
+	// Reasoning Gate A needs a longer identical-chunk run than answer text
+	// (see reasoningTextGuardConfig) so healthy multi-paragraph thinking is not
+	// cancelled mid-stream.
+	degenerated := make([]llm.Chunk, 80)
 	for i := range degenerated {
 		degenerated[i] = llm.Chunk{Reasoning: "I will now write App.jsx. "}
 	}

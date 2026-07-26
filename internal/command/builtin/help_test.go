@@ -13,9 +13,14 @@ func TestHelpCommandRendersTUICommandsAndClaudeCoreKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("help command: %v", err)
 	}
-	for _, want := range []string{"/help", "/status", "/context", "/copy", "/clear", "/retry", "/diff", "/history", "/exit"} {
+	for _, want := range []string{"/help", "/status", "/context", "/copy", "/clear", "/retry", "/exit"} {
 		if !strings.Contains(result.Output, want) {
 			t.Fatalf("expected %q in help output:\n%s", want, result.Output)
+		}
+	}
+	for _, hidden := range []string{"/diff", "/history", "/model", "/permissions"} {
+		if strings.Contains(result.Output, hidden) {
+			t.Fatalf("compatibility-only command %q should not appear in default help:\n%s", hidden, result.Output)
 		}
 	}
 	if result.Panel == nil || result.Panel.Title != "help" {

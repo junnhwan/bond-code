@@ -122,11 +122,25 @@ func (m Model) renderTurnStatusLine(width int) string {
 		return truncateStyled(m.renderTurnRunStatus(latest), width)
 	}
 	// Busy: compose Grok turn-status from live activity + elapsed + [stop].
+	// Live thinking preview is folded into this single fixed-height row so the
+	// transcript does not grow/shrink (and jitter) while reasoning streams.
 	activity := m.currentAgentDetail()
 	if d := strings.TrimSpace(m.agent.LiveDetail); d != "" {
 		activity = d
 	} else if d := strings.TrimSpace(latest.Run.Detail); d != "" {
 		activity = d
+	}
+	if live := m.agent.LiveStream; live != nil && live.kind == BlockReasoning {
+		activity = "thinking"
+		// Prefer closed lines; fall back to raw body so incomplete tails still
+		// give a dock cue instead of a bare "thinking…".
+		snippetBody := live.visibleBody()
+		if strings.TrimSpace(snippetBody) == "" {
+			snippetBody = live.body
+		}
+		if snip := liveReasoningDockSnippet(snippetBody, max(24, width/2)); snip != "" {
+			activity = "thinking · " + snip
+		}
 	}
 	startedAt := firstTime(latest.Run.StartedAt, latest.StartedAt)
 	if startedAt.IsZero() {

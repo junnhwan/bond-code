@@ -49,20 +49,19 @@ func TestMarkdownRenderCacheIsScopedByWidth(t *testing.T) {
 	}
 }
 
-func TestMarkdownRendererUsesStableCodeThemeAcrossResize(t *testing.T) {
+func TestMarkdownRendererResizeUpdatesWidth(t *testing.T) {
 	renderer, err := NewMarkdownRenderer(80)
 	if err != nil {
 		t.Fatalf("new markdown renderer: %v", err)
 	}
-	if renderer.style != markdownRendererStyle {
-		t.Fatalf("expected markdown renderer style %q, got %q", markdownRendererStyle, renderer.style)
+	if renderer.width != 80 {
+		t.Fatalf("expected width 80, got %d", renderer.width)
 	}
-
 	if err := renderer.UpdateWidth(100); err != nil {
 		t.Fatalf("update width: %v", err)
 	}
-	if renderer.style != markdownRendererStyle {
-		t.Fatalf("expected resize to preserve style %q, got %q", markdownRendererStyle, renderer.style)
+	if renderer.width != 100 {
+		t.Fatalf("expected width 100 after resize, got %d", renderer.width)
 	}
 }
 

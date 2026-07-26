@@ -85,6 +85,7 @@ type liveStreamLinesKey struct {
 	visibleLen   int
 	width        int
 	showThinking bool
+	verbose      bool
 	accent       string
 }
 
@@ -328,7 +329,7 @@ func (m Model) appendTimelineTurnHistoryLines(lines []string, turn Turn, width i
 		// string as a single slice element breaks height/scroll math: the
 		// body window counts it as one row, then fitBodyWindow keeps the
 		// bottom of the expanded text and drops earlier prompt lines.
-		userLines := strings.Split(renderUserEcho(body), "\n")
+		userLines := strings.Split(renderUserEcho(body, width), "\n")
 		if selecting && sel.turnIdx == turnIdx && sel.blockIdx < 0 {
 			userLines = highlightScrollSelection(userLines, true)
 		}
@@ -391,6 +392,7 @@ func (m Model) renderLiveStreamLines(width int) []string {
 		visibleLen:   live.visibleLen + pendingFlag, // distinguish pending state
 		width:        width,
 		showThinking: m.showThinking,
+		verbose:      m.verbose,
 		accent:       m.accent,
 	}
 	if cache != nil && cache.live.initialized && cache.live.key == key {
@@ -398,32 +400,30 @@ func (m Model) renderLiveStreamLines(width int) []string {
 	}
 
 	var lines []string
-	if body != "" {
-		switch live.kind {
-		case BlockAssistant:
+	switch live.kind {
+	case BlockAssistant:
+		if body != "" {
 			contentWidth := max(1, width-2)
+			// Stream stable closed lines as plain wrap (no full markdown per
+			// delta — performance guardrail). Committed history uses goldmark.
 			wrapped := ansi.Wordwrap(body, contentWidth, "")
 			wrapped = ansi.Hardwrap(wrapped, contentWidth, true)
-			// Match committed assistant: magenta bar, not typewriter raw text.
 			lines = renderBlockMarkerLines("│", accentStyle, wrapped)
-		case BlockReasoning:
-			reasoningWidth := max(20, width-2)
-			if m.showThinking {
-				lines = renderReasoningFullLines(body, reasoningWidth)
-			} else {
-				lines = renderReasoningPreviewLines(body, reasoningWidth)
-			}
-			thinkStyle := lipgloss.NewStyle().Foreground(DefaultTheme.Accent).Faint(true)
-			lines = withBlockMarkerLines("│", thinkStyle, lines)
 		}
-	}
-	if hasPending {
-		// One stable cue that more text is buffered — not partial glyphs.
-		cue := dimStyle.Render("│ …")
-		if live.kind == BlockReasoning {
-			cue = dimStyle.Render("│ ···")
+		if hasPending {
+			lines = append(lines, dimStyle.Render("│ …"))
 		}
-		lines = append(lines, cue)
+	case BlockReasoning:
+		// Live thinking does NOT grow inside the transcript — multi-line
+		// tail previews change height every delta and make scrollback jitter.
+		// Preview lives in the fixed dock turn-status row (see
+		// renderTurnStatusLine). showThinking still paints a full live body
+		// when the user explicitly asks for it (Ctrl+T).
+		if m.showThinking {
+			lines = renderLiveReasoningLines(body, max(20, width-2), true, hasPending)
+		} else {
+			lines = nil
+		}
 	}
 	if cache != nil {
 		cache.live = liveStreamLinesCache{initialized: true, key: key, lines: lines}
@@ -431,10 +431,15 @@ func (m Model) renderLiveStreamLines(width int) []string {
 	return lines
 }
 
-// renderUserEcho renders a user prompt clearly distinct from assistant text.
-// Grok language: full-row light surface + neutral ❯ (not magenta assistant bar).
-func renderUserEcho(body string) string {
-	row := lipgloss.NewStyle().
+// renderUserEcho renders a user prompt as a full-width card so user turns read
+// as conversation blocks, not gray text on a black half-line. Claude Code paints
+// userMessageBackground across the Box; we pad every visual row with the same
+// Selection background so fitStyledLine never leaves an unstyled black tail.
+func renderUserEcho(body string, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	text := lipgloss.NewStyle().
 		Foreground(DefaultTheme.Text).
 		Background(DefaultTheme.Selection)
 	you := lipgloss.NewStyle().
@@ -444,16 +449,68 @@ func renderUserEcho(body string) string {
 	prompt := lipgloss.NewStyle().
 		Foreground(DefaultTheme.GrayBright).
 		Background(DefaultTheme.Selection)
+
+	const (
+		youTag    = " you "
+		promptTag = "❯ "
+	)
+	firstPrefixCols := lipgloss.Width(youTag) + lipgloss.Width(promptTag)
+	contPad := strings.Repeat(" ", firstPrefixCols)
+
 	parts := strings.Split(body, "\n")
+	out := make([]string, 0, len(parts))
 	for i, line := range parts {
 		if i == 0 {
-			// "you  ❯ message" — role tag makes user/assistant separation obvious.
-			parts[i] = you.Render(" you ") + prompt.Render("❯ ") + row.Render(line+" ")
-		} else {
-			parts[i] = row.Render("      " + line + " ")
+			msgWidth := max(1, width-firstPrefixCols)
+			for j, ml := range wrapPlainLines(line, msgWidth) {
+				var styled string
+				if j == 0 {
+					styled = you.Render(youTag) + prompt.Render(promptTag) + text.Render(ml)
+				} else {
+					styled = text.Render(contPad + ml)
+				}
+				out = append(out, stretchCardLine(styled, width))
+			}
+			continue
+		}
+		msgWidth := max(1, width-firstPrefixCols)
+		for _, ml := range wrapPlainLines(line, msgWidth) {
+			out = append(out, stretchCardLine(text.Render(contPad+ml), width))
 		}
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(out, "\n")
+}
+
+// wrapPlainLines word/hard-wraps unstyled text into visual rows of at most width.
+func wrapPlainLines(text string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if text == "" {
+		return []string{""}
+	}
+	wrapped := ansi.Wordwrap(text, width, "")
+	wrapped = ansi.Hardwrap(wrapped, width, true)
+	return strings.Split(wrapped, "\n")
+}
+
+// stretchCardLine pads a styled row to width with Selection-background spaces so
+// the user card is a solid bar, not gray glyphs on a black remainder.
+func stretchCardLine(styled string, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	w := lipgloss.Width(styled)
+	if w > width {
+		return ansi.Truncate(styled, width, "")
+	}
+	if w == width {
+		return styled
+	}
+	pad := lipgloss.NewStyle().
+		Background(DefaultTheme.Selection).
+		Render(strings.Repeat(" ", width-w))
+	return styled + pad
 }
 
 func isToolActivityBlock(block Block) bool {

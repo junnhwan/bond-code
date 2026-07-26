@@ -154,14 +154,18 @@ func TestClaudeCoreKeyBindings(t *testing.T) {
 		}
 	})
 
-	t.Run("shift enter and Windows fallback are newlines", func(t *testing.T) {
-		if !isComposerNewlineKey("shift+enter") || !isComposerNewlineKey("alt+enter") {
-			t.Fatal("composer newline routing must recognize Shift+Enter and Alt+Enter")
+	t.Run("ctrl+j and Windows fallbacks are newlines", func(t *testing.T) {
+		if !isComposerNewlineKey("shift+enter") || !isComposerNewlineKey("alt+enter") || !isComposerNewlineKey("ctrl+j") {
+			t.Fatal("composer newline routing must recognize Ctrl+J, Alt+Enter, and Shift+Enter")
 		}
 		model := NewModel(Config{}).SetInput("first")
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 		if got := updated.(Model).inputValue(); got != "first\n" {
-			t.Fatalf("Alt+Enter should insert a newline, got %q", got)
+			t.Fatalf("Ctrl+J should insert a newline, got %q", got)
+		}
+		updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+		if got := updated.(Model).inputValue(); got != "first\n\n" {
+			t.Fatalf("Alt+Enter should insert another newline, got %q", got)
 		}
 	})
 

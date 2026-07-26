@@ -24,6 +24,8 @@ func TestPermissionPanelHidesComposer(t *testing.T) {
 		"write_file",
 		"internal/agent/loop.go",
 		"Risk: medium",
+		"↑↓ select",
+		"enter confirm",
 		"y allow once",
 	} {
 		if !strings.Contains(view, want) {

@@ -106,7 +106,7 @@ func (m Model) shouldConsumeComposerInputKey(msg tea.KeyMsg) bool {
 		return true
 	}
 	switch msg.String() {
-	case "enter", "tab", "shift+tab", "backspace", "delete", "alt+enter", "alt+m":
+	case "enter", "tab", "shift+tab", "backspace", "delete", "alt+enter", "alt+m", "ctrl+j", "ctrl+enter":
 		return true
 	case "ctrl+c":
 		return !m.agent.Busy && m.inputValue() != ""

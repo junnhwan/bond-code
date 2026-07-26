@@ -35,6 +35,12 @@ func (s Skill) ModelInvocable() bool {
 	return !s.DisableModelInvocation
 }
 
+// SlashInvocable reports whether the user may type /name to expand this skill.
+// Claude Code: user-invocable defaults true; false hides from the slash menu.
+func (s Skill) SlashInvocable() bool {
+	return s.UserInvocable
+}
+
 // ListingDescription is the discovery blurb (description + optional when_to_use).
 func (s Skill) ListingDescription() string {
 	desc := s.Description

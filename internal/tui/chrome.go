@@ -260,17 +260,33 @@ func renderWelcomeBrandFrame(width, frame int) string {
 	return strings.Join(renderBondWordmarkFrame(width, frame), "\n")
 }
 
-func renderWelcomeMenuColumn(width int, activeIdx int) string {
-	items := welcomeMenuItems()
-	// Grok menu: centered column, label left, key right, full-row bg on select.
+// welcomeMenuColumnBounds returns the [left, right) cell range of the centered
+// menu column for a given timeline width. Hit testing must use the same
+// geometry as paint — only the column is clickable, not the full terminal row.
+func welcomeMenuColumnBounds(width int) (left, right int) {
+	if width < 1 {
+		return 0, 0
+	}
 	colW := 51
 	if width < colW+4 {
 		colW = max(28, width-4)
 	}
-	leftPad := (width - colW) / 2
-	if leftPad < 0 {
-		leftPad = 0
+	left = (width - colW) / 2
+	if left < 0 {
+		left = 0
 	}
+	right = left + colW
+	if right > width {
+		right = width
+	}
+	return left, right
+}
+
+func renderWelcomeMenuColumn(width int, activeIdx int) string {
+	items := welcomeMenuItems()
+	// Grok menu: centered column, label left, key right, full-row bg on select.
+	leftPad, right := welcomeMenuColumnBounds(width)
+	colW := right - leftPad
 	pad := strings.Repeat(" ", leftPad)
 	if activeIdx < 0 || activeIdx >= len(items) {
 		activeIdx = 0
@@ -400,24 +416,5 @@ func FormatPermissionOptionList(options []string, activeIdx int) string {
 
 // UserPromptPrefix is the Grok-like user turn marker in scrollback.
 const UserPromptPrefix = "❯ "
-
-// formatUserEcho styles a submitted user prompt the way Grok shows user blocks.
-func formatUserEcho(text string, width int) string {
-	text = strings.TrimRight(text, "\n")
-	if text == "" {
-		return ""
-	}
-	prefix := accentStyle.Render("\u276f") + " "
-	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
-	for i, line := range lines {
-		if i == 0 {
-			out = append(out, truncateStyled(prefix+userStyle.Render(line), max(1, width)))
-			continue
-		}
-		out = append(out, truncateStyled("  "+userStyle.Render(line), max(1, width)))
-	}
-	return strings.Join(out, "\n")
-}
 
 var _ = fmt.Sprintf

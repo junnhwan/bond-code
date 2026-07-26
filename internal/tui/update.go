@@ -133,10 +133,13 @@ func (m Model) handleKeyMessageInner(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+o":
-		// Expand/collapse all tool details + verbose transcript density.
-		m = m.toggleToolDetails()
-		m = m.toggleVerbose()
-		return m, nil
+		// Single semantic: expand/collapse transcript tool details (Claude
+		// ctrl+o). Do not thrash showToolDetails — that hid completed tools
+		// while verbose tried to expand them. Thinking is Ctrl+T only.
+		return m.toggleExpandedTranscript(), nil
+	case "ctrl+t":
+		// Historical thinking on/off. Independent of Ctrl+O tool density.
+		return m.toggleThinking(), nil
 	case "ctrl+shift+m":
 		// Toggle mouse capture: off restores terminal drag-select/copy.
 		return m.toggleMouseCapture()
@@ -267,16 +270,19 @@ func (m Model) handleKeyMessageInner(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if pastedNewline {
 			return m.insertNewline(), nil
 		}
-		// Auto-complete if a suggestion is selected. For slash commands,
-		// complete and run immediately; file mentions only fill the composer.
+		// Accept the highlighted suggestion first. File mentions only fill the
+		// composer. Slash commands follow Claude Code: complete into `/name `
+		// always; auto-submit only when the command does not expect free-text
+		// args (skills / custom prompt templates stay open so the user can type
+		// a prompt after the name — Enter alone used to fire too early).
 		if m.composer.Suggestions != nil && m.composer.Suggestions.IsVisible() {
 			filter := m.getCommandFilter()
-			selected := m.composer.Suggestions.GetSelected(filter)
-			if selected != "" {
+			item, ok := m.composer.Suggestions.GetSelectedItem(filter)
+			if ok && item.Name != "" {
 				prefix := m.composer.Suggestions.CurrentPrefix()
-				m = m.completeSelectedSuggestion(filter, selected)
+				m = m.completeSelectedSuggestion(filter, item.Name)
 				m.composer.Suggestions.Hide()
-				if prefix == "/" {
+				if prefix == "/" && slashSuggestionAutoSubmits(item, m.cfg.Commands) {
 					return m.Submit(m.cfg.Context)
 				}
 				return m, nil

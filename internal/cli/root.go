@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/junnhwan/bond-code/internal/app"
 	"github.com/junnhwan/bond-code/internal/command"
@@ -64,23 +65,38 @@ func newRootCommandWithBootstrapAndTUI(bootstrap bootstrapFunc, tuiRunner tuiRun
 	var configPath string
 	var fake bool
 	var yes bool
-	var resume string
+	var resume bool
 	var debugLevel string
 	cmd := &cobra.Command{
-		Use:   "bondcode",
+		Use:   "bondcode [session-id]",
 		Short: "Open the BondCode interactive workspace",
-		Args:  cobra.NoArgs,
+		// Optional positional id is only meaningful with --resume
+		// (`bondcode --resume` / `bondcode --resume <id>`).
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tuiConfirmer := newTUIConfirmer()
 			tuiQuestioner := newTUIQuestioner()
+			resumeID := ""
+			openPicker := false
+			if resume {
+				if len(args) == 1 {
+					resumeID = strings.TrimSpace(args[0])
+				}
+				if resumeID == "" {
+					openPicker = true
+				}
+			} else if len(args) == 1 {
+				return fmt.Errorf("unexpected argument %q (did you mean: bondcode --resume %s)", args[0], args[0])
+			}
 			application, err := bootstrap(app.Options{
-				ConfigPath:      configPath,
-				UseFakeLLM:      fake,
-				AutoYes:         yes,
-				Confirmer:       tuiConfirmer,
-				Questioner:      tuiQuestioner,
-				ResumeSessionID: resume,
-				Debug:           parseDebugVerbose(debugLevel),
+				ConfigPath:        configPath,
+				UseFakeLLM:        fake,
+				AutoYes:           yes,
+				Confirmer:         tuiConfirmer,
+				Questioner:        tuiQuestioner,
+				ResumeSessionID:   resumeID,
+				OpenSessionPicker: openPicker,
+				Debug:             parseDebugVerbose(debugLevel),
 			})
 			if err != nil {
 				return err
@@ -93,7 +109,7 @@ func newRootCommandWithBootstrapAndTUI(bootstrap bootstrapFunc, tuiRunner tuiRun
 	cmd.Flags().BoolVar(&fake, "fake", false, "use fake local LLM for tests and demos")
 	_ = cmd.Flags().MarkHidden("fake")
 	cmd.Flags().BoolVar(&yes, "yes", false, "auto-approve low and medium risk tool calls")
-	cmd.Flags().StringVar(&resume, "resume", "", "resume a previous conversation by id")
+	cmd.Flags().BoolVar(&resume, "resume", false, "resume a previous conversation (optional session id as argument; omit id to open the picker)")
 	cmd.Flags().StringVar(&debugLevel, "debug", "", "enable debug trace at <data-dir>/<id>.debug.jsonl ('', 'default', or 'full'); BONDCODE_DEBUG env is equivalent")
 
 	cmd.AddCommand(newHeadlessCommand(bootstrap))

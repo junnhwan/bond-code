@@ -58,8 +58,8 @@ func TestSuggestionList(t *testing.T) {
 			t.Error("expected suggestions to be visible after Show")
 		}
 		visible := sl.GetVisible("")
-		if len(visible) != 18 {
-			t.Errorf("expected 18 canonical builtin suggestions, got %d", len(visible))
+		if len(visible) != 14 {
+			t.Errorf("expected 14 canonical builtin suggestions, got %d", len(visible))
 		}
 		if !containsSuggestion(visible, "retry") {
 			t.Errorf("expected local retry command in suggestions, got %#v", visible)

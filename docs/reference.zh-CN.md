@@ -15,7 +15,7 @@
 | 按键 | 作用 |
 |------|------|
 | `Enter` | 发送（Agent 忙时入队） |
-| `Shift+Enter` / `Alt+Enter` | 换行（Windows 无法区分 Shift+Enter 时用 `Alt+Enter`） |
+| `Ctrl+J` / `Alt+Enter` / `Shift+Enter` | 换行（Windows 推荐 `Ctrl+J`；Shift+Enter 常不可用） |
 | `Tab` | 在 prompt 与 scrollback 焦点间切换 |
 | `Space` | scrollback 且草稿为空时回到 prompt |
 | `Esc` | 关 overlay / 取消运行 / 清空草稿 / 离开 scrollback |
@@ -23,7 +23,8 @@
 | `Ctrl+D` | scrollback 半页下滚；composer 为空则退出 |
 | `Ctrl+U` | scrollback 半页上滚 |
 | `Shift+Tab` / `Alt+M` | 切换 normal / plan mode |
-| `Ctrl+O` | 展开/折叠工具详情与 transcript 密度 |
+| `Ctrl+O` | 展开/收起工具详情（路径、输出）。不展开历史 thinking |
+| `Ctrl+T` | 显示/隐藏完整 thinking（默认历史隐藏；流式时只在输入框上方 dock 显示一行预览，避免滚动抖动） |
 | `Ctrl+R` | 反向搜索 prompt 历史 |
 | `Ctrl+Up` | Agent 切换器（有子 agent 时） |
 | `Ctrl+G` | 用 `$EDITOR` / `$VISUAL` 编辑草稿 |
@@ -39,15 +40,9 @@
 
 默认发现 / `/help` 顺序：
 
-`/help` `/clear` `/resume` `/model` `/permissions` `/compact` `/status` `/context` `/memory` `/skills` `/undo` `/export` `/copy` `/retry` `/diff` `/history` `/exit`
+`/help` `/clear` `/resume` `/compact` `/status` `/context` `/memory` `/skills` `/undo` `/export` `/copy` `/retry` `/exit`
 
-说明：
-
-- `/history` — session 时间线 / fork-resume 浏览器  
-- `/diff` — 本 session 文件变更  
-- `/permissions [mode]` — 查看或切换权限模式  
-
-仍可执行但不在默认发现列表：`/new`、`/sessions`（→ `/resume`）、`/session`、`/cost`、`/theme`、`/quit`、`/q`（→ `/exit`）。
+仍可执行但不在默认发现列表：`/model`、`/permissions`、`/diff`、`/history`、`/new`、`/sessions`（→ `/resume`）、`/session`、`/cost`、`/theme`、`/quit`、`/q`（→ `/exit`）。
 
 ## 内置工具
 
@@ -82,7 +77,11 @@
 | `mailbox_*` | `collaboration.enabled`（默认开） |
 | `mcp__<server>__<tool>` | `mcp.enabled` **且** `mcp.inject_tools` |
 
-Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `skills.root`）。
+Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `skills.root`）：
+
+- **斜杠菜单**：`user-invocable` 的 skill 会出现在 `/` 补全里（`/name` 直接展开）。`disable-model-invocation: true` 的 user-only skill 仍可斜杠调用。
+- **模型面**：只有 model-invocable skill 进入 Available Skills；模型通过 `skill` 工具调用。
+- **`/skills`**：列出全部 skill 并标注 model/user-only 数量；长行在 transcript 中自动换行。
 
 ### 委派怎么选
 
@@ -134,7 +133,14 @@ Skills 目录：`~/.bondcode/skills` 与 `<project>/.bondcode/skills`（可选 `
 
 ## Session 与 debug
 
-日常会话在 TUI（`/resume`、session manager overlay）。可选 power-user CLI（`bondcode --help` 不展示，但仍可按名调用）：
+从 shell 直接续聊，不必先进 TUI 再敲 `/resume`：
+
+```powershell
+bondcode --resume              # 打开 TUI 并进入会话选择器
+bondcode --resume <session-id> # 直接打开该会话
+```
+
+日常会话也可在 TUI 内用 `/resume` / session manager overlay。可选 power-user CLI（`bondcode --help` 不展示，但仍可按名调用）：
 
 ```powershell
 bondcode session list
@@ -159,6 +165,8 @@ bondcode session trace [id] --debug   # 叠加模型决策层
 | 入口 | 作用 |
 |------|------|
 | `bondcode` | 打开交互式 TUI（主路径） |
+| `bondcode --resume` | 打开 TUI 并进入会话选择器 |
+| `bondcode --resume <id>` | 直接打开该会话 |
 | `bondcode config show\|example` | 查看配置 |
 | `bondcode headless` | stdin/stdout JSON-line（嵌入 / 自动化） |
 | 隐藏：`session`、`mcp`、slash 同名命令 | 调试 / 进阶 |

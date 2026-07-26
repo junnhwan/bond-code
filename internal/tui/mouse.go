@@ -433,7 +433,7 @@ func (m Model) resolveMouseHit(x, y int) mouseHit {
 			return mouseHit{kind: mouseHitScrollbar, index: relY}
 		}
 		if len(m.timeline.Turns) == 0 {
-			if hit, ok := m.welcomeMenuHitAt(layout.TimelineW, layout.TimelineH, relY); ok {
+			if hit, ok := m.welcomeMenuHitAt(layout.TimelineW, layout.TimelineH, x, relY); ok {
 				return hit
 			}
 		}
@@ -508,7 +508,13 @@ func refitMouseBandsFromBottom(bands []mouseBand, height, bodyH int) []mouseBand
 	return out
 }
 
-func (m Model) welcomeMenuHitAt(width, height, relY int) (mouseHit, bool) {
+func (m Model) welcomeMenuHitAt(width, height, x, relY int) (mouseHit, bool) {
+	left, right := welcomeMenuColumnBounds(width)
+	// Only the painted menu column is interactive — padding left/right of the
+	// centered bar must not steal clicks (full-row hits feel broken).
+	if x < left || x >= right {
+		return mouseHit{}, false
+	}
 	rows := welcomeMenuRowYs(WelcomeChromeInput{
 		Width:   width,
 		Height:  height,

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/junnhwan/bond-code/internal/command"
+	"github.com/junnhwan/bond-code/internal/skill"
 )
 
 // Suggestion represents a single suggestion item
@@ -15,9 +16,8 @@ type Suggestion struct {
 	Name        string // Command name (without /)
 	Description string // Command description
 	Prefix      string
-	// Source labels where the command comes from: "builtin" (default) or
-	// "custom" (.bondcode/commands/*.md prompt templates). Shown as a dim badge
-	// in the completion list so users can tell project-defined commands apart.
+	// Source labels where the command comes from: "builtin" (default),
+	// "custom" (.bondcode/commands/*.md), or "skill" (SKILL.md slash skills).
 	Source string
 }
 
@@ -35,10 +35,16 @@ type SuggestionList struct {
 // NewSuggestionList creates a new suggestion list from the canonical builtin
 // surface plus discoverable custom prompt-template commands from the registry.
 func NewSuggestionList(registry *command.Registry) *SuggestionList {
+	return NewSuggestionListWithSkills(registry, nil)
+}
+
+// NewSuggestionListWithSkills also surfaces user-invocable skills in the `/`
+// menu (Claude Code: skills share the typeahead with builtins).
+func NewSuggestionListWithSkills(registry *command.Registry, loader *skill.Loader) *SuggestionList {
 	descriptors := command.DiscoverableSurfaceDescriptors()
 	initialSelected := firstConfiguredSurfaceIndex(registry, descriptors)
-	items := make([]Suggestion, 0, len(descriptors))
-	seen := make(map[string]struct{}, len(descriptors))
+	items := make([]Suggestion, 0, len(descriptors)+8)
+	seen := make(map[string]struct{}, len(descriptors)+8)
 	for _, descriptor := range descriptors {
 		items = append(items, Suggestion{
 			Name:        descriptor.Name,
@@ -71,6 +77,11 @@ func NewSuggestionList(registry *command.Registry) *SuggestionList {
 		}
 	}
 
+	for _, sug := range skillSlashSuggestions(loader, seen) {
+		items = append(items, sug)
+		seen[sug.Name] = struct{}{}
+	}
+
 	return &SuggestionList{
 		commandItems:    items,
 		items:           items,
@@ -79,6 +90,46 @@ func NewSuggestionList(registry *command.Registry) *SuggestionList {
 		mode:            "command",
 		initialSelected: initialSelected,
 	}
+}
+
+// skillSlashSuggestions lists user-invocable skills for the `/` typeahead.
+// Builtins and already-seen names win on collision.
+func skillSlashSuggestions(loader *skill.Loader, seen map[string]struct{}) []Suggestion {
+	if loader == nil {
+		return nil
+	}
+	index, err := loader.IndexAll()
+	if err != nil || len(index) == 0 {
+		return nil
+	}
+	out := make([]Suggestion, 0, len(index))
+	for _, s := range index {
+		if !s.SlashInvocable() {
+			continue
+		}
+		if _, reserved := command.LookupSurfaceDescriptor(s.Name); reserved {
+			continue
+		}
+		if _, duplicate := seen[s.Name]; duplicate {
+			continue
+		}
+		desc := s.ListingDescription()
+		if s.DisableModelInvocation {
+			if desc != "" {
+				desc += " [user-only]"
+			} else {
+				desc = "[user-only]"
+			}
+		}
+		out = append(out, Suggestion{
+			Name:        s.Name,
+			Description: desc,
+			Prefix:      "/",
+			Source:      "skill",
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func firstConfiguredSurfaceIndex(registry *command.Registry, descriptors []command.SurfaceDescriptor) int {
@@ -190,16 +241,23 @@ func (s *SuggestionList) GetVisible(filter string) []Suggestion {
 
 // GetSelected returns the currently selected suggestion, or empty string if none
 func (s *SuggestionList) GetSelected(filter string) string {
-	if !s.visible || s.selected < 0 {
+	item, ok := s.GetSelectedItem(filter)
+	if !ok {
 		return ""
 	}
+	return item.Name
+}
 
+// GetSelectedItem returns the full selected suggestion row (name + source).
+func (s *SuggestionList) GetSelectedItem(filter string) (Suggestion, bool) {
+	if !s.visible || s.selected < 0 {
+		return Suggestion{}, false
+	}
 	visible := s.GetVisible(filter)
 	if s.selected >= len(visible) {
-		return ""
+		return Suggestion{}, false
 	}
-
-	return visible[s.selected].Name
+	return visible[s.selected], true
 }
 
 func (s *SuggestionList) GetSelectedCompletion(filter string) string {

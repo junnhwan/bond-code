@@ -43,6 +43,7 @@ func assertDirectKeyRoute(t *testing.T, descriptor command.DirectKeyDescriptor) 
 		}
 	case "tui-local.composer.newline":
 		for _, variant := range variants {
+			// Bubble Tea cannot deliver Shift+Enter; keep the routing name wired.
 			if strings.EqualFold(variant, "Shift+Enter") {
 				if !isComposerNewlineKey(strings.ToLower(variant)) {
 					t.Fatalf("%s is not connected to composer newline routing", variant)
@@ -93,9 +94,32 @@ func assertDirectKeyRoute(t *testing.T, descriptor command.DirectKeyDescriptor) 
 		}
 	case "tui-local.view.verbose":
 		for _, variant := range variants {
-			next, _ := updateDirectKey(t, NewModel(Config{}), variant)
+			model := NewModel(Config{})
+			beforeDetails := model.showToolDetails
+			next, _ := updateDirectKey(t, model, variant)
 			if !next.verbose {
 				t.Fatalf("%s did not toggle expanded details", variant)
+			}
+			// Expanded mode must keep tool rows visible (not thrash density off).
+			if !next.showToolDetails {
+				t.Fatalf("%s turned off tool details while expanding", variant)
+			}
+			if !beforeDetails && next.showToolDetails != true {
+				t.Fatalf("%s should force showToolDetails on when expanding", variant)
+			}
+			// Tool density must not flip historical thinking open.
+			if next.showThinking {
+				t.Fatalf("%s must not enable showThinking", variant)
+			}
+		}
+	case "tui-local.view.thinking":
+		for _, variant := range variants {
+			next, _ := updateDirectKey(t, NewModel(Config{}), variant)
+			if !next.showThinking {
+				t.Fatalf("%s did not enable historical thinking", variant)
+			}
+			if next.verbose {
+				t.Fatalf("%s must not flip verbose tool density", variant)
 			}
 		}
 	case "tui-local.history.reverse":
@@ -161,6 +185,8 @@ func directKeyMessage(displayShortcut string) (tea.KeyMsg, bool) {
 		return tea.KeyMsg{Type: tea.KeyEnter}, true
 	case "alt+enter":
 		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}, true
+	case "ctrl+j":
+		return tea.KeyMsg{Type: tea.KeyCtrlJ}, true
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}, true
 	case "ctrl+c":
@@ -173,6 +199,8 @@ func directKeyMessage(displayShortcut string) (tea.KeyMsg, bool) {
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}, Alt: true}, true
 	case "ctrl+o":
 		return tea.KeyMsg{Type: tea.KeyCtrlO}, true
+	case "ctrl+t":
+		return tea.KeyMsg{Type: tea.KeyCtrlT}, true
 	case "ctrl+r":
 		return tea.KeyMsg{Type: tea.KeyCtrlR}, true
 	case "ctrl+up":

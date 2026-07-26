@@ -30,7 +30,7 @@ func (l *Loop) collectModelResponse(ctx context.Context, messages []llm.Message,
 		MaxRepeatedTextSubstrings: l.cfg.MaxRepeatedTextSubstrings,
 	}
 	textGuard := newTextGuard(guardCfg)
-	reasoningGuard := newTextGuard(guardCfg)
+	reasoningGuard := newTextGuard(reasoningTextGuardConfig(guardCfg))
 
 	var response modelResponse
 	var answer strings.Builder

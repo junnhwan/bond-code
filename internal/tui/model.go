@@ -111,7 +111,7 @@ func NewModel(cfg Config) Model {
 	if cfg.Context == nil {
 		cfg.Context = context.Background()
 	}
-	suggestions := NewSuggestionList(cfg.Commands)
+	suggestions := NewSuggestionListWithSkills(cfg.Commands, cfg.CommandEnv.SkillLoader)
 	setDisplayProjectRoot(cfg.Status.ProjectRoot)
 	composer := newComposerState(76, suggestions)
 	if cfg.PromptHistoryPath != "" {
@@ -178,6 +178,10 @@ func NewModel(cfg Config) Model {
 	m.lastTerminalTitle = m.terminalTitle()
 	// Cold start: prompt owns focus and the cursor may blink.
 	m, _ = m.applyComposerFocus()
+	// Bare `bondcode --resume`: land on the session picker immediately.
+	if cfg.OpenSessionManagerOnStart && cfg.SessionManager != nil {
+		m = m.openSessionManager()
+	}
 	return m
 }
 
@@ -297,6 +301,25 @@ func (m Model) toggleVerbose() Model {
 	setRenderVerbose(m.verbose)
 	m.invalidateMarkdownCache()
 	return m.persistPreferences()
+}
+
+// toggleExpandedTranscript is Ctrl+O: denser tool transcript (fuller paths /
+// output, force completed tool rows visible). It does not reveal historical
+// thinking — that is Ctrl+T (showThinking) only, so expanding tools once
+// cannot leave thinking stuck open across the session.
+func (m Model) toggleExpandedTranscript() Model {
+	m.verbose = !m.verbose
+	setRenderVerbose(m.verbose)
+	if m.verbose {
+		// Expanding details is useless if completed tools are density-hidden.
+		m.showToolDetails = true
+	}
+	m.invalidateMarkdownCache()
+	m = m.persistPreferences()
+	if m.verbose {
+		return m.pushToast("expanded tool details", toastInfo)
+	}
+	return m.pushToast("compact tool details", toastInfo)
 }
 
 func (m Model) persistPreferences() Model {

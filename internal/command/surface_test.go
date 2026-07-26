@@ -18,8 +18,6 @@ func TestSurfaceDescriptorsDefineCanonicalPolicy(t *testing.T) {
 		{"command.help", "help", nil, SurfaceDiscoverable, "/help", "Show TUI commands and keys", "registry.help"},
 		{"command.clear", "clear", nil, SurfaceDiscoverable, "/clear", "Clear the current transcript and start fresh", "registry.clear"},
 		{"command.resume", "resume", []string{"sessions"}, SurfaceDiscoverable, "/resume", "List sessions or switch to a session by id", "registry.resume"},
-		{"command.model", "model", nil, SurfaceDiscoverable, "/model", "Switch the active model without restarting (/model <name>; no arg shows current)", "registry.model"},
-		{"command.permissions", "permissions", nil, SurfaceDiscoverable, "/permissions", "Show permission mode", "registry.permissions"},
 		{"command.compact", "compact", nil, SurfaceDiscoverable, "/compact", "Compact prompt context", "tui-local.compact"},
 		{"command.status", "status", nil, SurfaceDiscoverable, "/status", "Show current runtime status", "registry.status"},
 		{"command.context", "context", nil, SurfaceDiscoverable, "/context", "Show context window usage breakdown", "registry.context"},
@@ -30,9 +28,11 @@ func TestSurfaceDescriptorsDefineCanonicalPolicy(t *testing.T) {
 		{"command.copy", "copy", nil, SurfaceDiscoverable, "/copy", "Copy latest output", "tui-local.copy"},
 		{"command.mouse", "mouse", nil, SurfaceDiscoverable, "/mouse", "Toggle mouse capture (off = terminal drag-select/copy)", "tui-local.mouse"},
 		{"command.retry", "retry", nil, SurfaceDiscoverable, "/retry", "Rerun latest failed turn", "tui-local.retry"},
-		{"command.diff", "diff", nil, SurfaceDiscoverable, "/diff", "Review session file changes (diff viewer)", "overlay.diff"},
-		{"command.history", "history", nil, SurfaceDiscoverable, "/history", "Browse session timeline (fork-resume)", "overlay.history"},
 		{"command.exit", "exit", []string{"quit", "q"}, SurfaceDiscoverable, "/exit", "Quit BondCode", "exit"},
+		{"command.model", "model", nil, SurfaceCompatibilityOnly, "/model", "Switch the active model without restarting (/model <name>; no arg shows current)", "registry.model"},
+		{"command.permissions", "permissions", nil, SurfaceCompatibilityOnly, "/permissions", "Show permission mode", "registry.permissions"},
+		{"command.diff", "diff", nil, SurfaceCompatibilityOnly, "/diff", "Review session file changes (diff viewer)", "overlay.diff"},
+		{"command.history", "history", nil, SurfaceCompatibilityOnly, "/history", "Browse session timeline (fork-resume)", "overlay.history"},
 		{"command.new", "new", nil, SurfaceCompatibilityOnly, "/new", "Start a fresh empty session", "registry.new"},
 		{"command.session", "session", nil, SurfaceCompatibilityOnly, "/session", "Show current session details", "registry.session"},
 		{"command.cost", "cost", nil, SurfaceCompatibilityOnly, "/cost", "Show cumulative model token usage", "registry.cost"},
@@ -73,9 +73,9 @@ func TestSurfaceDescriptorsDefineCanonicalPolicy(t *testing.T) {
 
 func TestSurfaceDiscoverableDescriptorsHaveExactOrder(t *testing.T) {
 	want := []string{
-		"help", "clear", "resume", "model", "permissions", "compact",
+		"help", "clear", "resume", "compact",
 		"status", "context", "memory", "skills", "undo", "export",
-		"copy", "mouse", "retry", "diff", "history", "exit",
+		"copy", "mouse", "retry", "exit",
 	}
 
 	gotDescriptors := DiscoverableSurfaceDescriptors()

@@ -36,8 +36,11 @@ func (m Model) scrollEntries() []scrollEntry {
 			if block.Kind == BlockTool && block.Tool != nil && !m.showToolDetails && block.Tool.Status == ToolDone {
 				continue
 			}
-			if block.Kind == BlockReasoning && strings.TrimSpace(block.Body) == "" {
-				continue
+			// Hidden thinking (CC default) is not selectable until revealed.
+			if block.Kind == BlockReasoning {
+				if strings.TrimSpace(block.Body) == "" || !m.reasoningVisible(scrollEntryKey(ti, bi, block)) {
+					continue
+				}
 			}
 			foldable := block.Kind == BlockTool || block.Kind == BlockReasoning || block.Kind == BlockAssistant
 			entries = append(entries, scrollEntry{
@@ -125,9 +128,12 @@ func (m Model) isEntryExpanded(key string) bool {
 	return m.expandedEntries[key]
 }
 
-// reasoningExpanded is the effective thinking visibility for one block:
-// per-entry expand/fold overrides the global showThinking density default.
-func (m Model) reasoningExpanded(blockID string) bool {
+// reasoningVisible reports whether a committed thinking block should paint.
+// Default is fully hidden (Claude Code prompt mode). Only an explicit
+// showThinking toggle (Ctrl+T) or a per-entry expand reveals it.
+// Ctrl+O verbose expands tools/timestamps only — it must NOT re-open
+// historical thinking, or a one-shot tool expand leaves thinking stuck on.
+func (m Model) reasoningVisible(blockID string) bool {
 	if blockID != "" {
 		if m.isEntryExpanded(blockID) {
 			return true
@@ -137,6 +143,12 @@ func (m Model) reasoningExpanded(blockID string) bool {
 		}
 	}
 	return m.showThinking
+}
+
+// reasoningExpanded is true when thinking content should show in full.
+// With CC-style default hide, this matches reasoningVisible (no folded header).
+func (m Model) reasoningExpanded(blockID string) bool {
+	return m.reasoningVisible(blockID)
 }
 
 // toggleSelectedFold folds/expands the selected entry when it supports fold.
@@ -164,10 +176,11 @@ func (m Model) toggleSelectedFold() Model {
 	if m.expandedEntries == nil {
 		m.expandedEntries = map[string]bool{}
 	}
-	// Reasoning: default is collapsed (showThinking=false). Left/right must
-	// expand even at that default — flip effective visibility via overrides.
+	// Reasoning: default is fully hidden (CC). When a block is selectable
+	// (global show on), left/right still force-fold / force-expand one entry.
 	if block.Kind == BlockReasoning {
-		if m.reasoningExpanded(entry.key) {
+		if m.reasoningVisible(entry.key) && !m.isEntryFolded(entry.key) {
+			// Currently showing → force-fold this entry only.
 			delete(m.expandedEntries, entry.key)
 			m.foldedEntries[entry.key] = true
 		} else {

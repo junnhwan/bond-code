@@ -358,7 +358,6 @@ func TestCurrentLayoutReservesQueuedPrompts(t *testing.T) {
 func TestRailHiddenModeHidesRailOnWideLayout(t *testing.T) {
 	model := NewModel(Config{Status: Status{SessionID: "session-1", PermissionMode: "confirm"}})
 	model = model.SetSize(160, 32)
-	
 
 	layout := model.currentLayout()
 	if false /* no sidebar */ {
@@ -372,7 +371,6 @@ func TestRailHiddenModeHidesRailOnWideLayout(t *testing.T) {
 func TestRailExpandedModeDoesNotReserveSidebar(t *testing.T) {
 	model := NewModel(Config{Status: Status{SessionID: "session-1", PermissionMode: "confirm"}})
 	model = model.SetSize(120, 32)
-	
 
 	layout := model.currentLayout()
 	if layout.TimelineW != model.width {
@@ -768,17 +766,44 @@ func TestLiveOverlayShowsOnlyCompleteAssistantLinesRaw(t *testing.T) {
 	}
 }
 
-func TestLiveReasoningRespectsThinkingToggle(t *testing.T) {
-	model := modelWithLiveStream(BlockReasoning, "first thought\nsecond thought\n", len("first thought\nsecond thought\n"))
-	folded := ansi.Strip(strings.Join(model.renderLiveStreamLines(80), "\n"))
-	if !strings.Contains(folded, "thinking") || strings.Contains(folded, "second thought") {
-		t.Fatalf("folded live reasoning presentation mismatch:\n%s", folded)
+func TestLiveReasoningUsesDockNotTranscriptByDefault(t *testing.T) {
+	// Default live thinking must not grow the transcript (jitter). Preview is
+	// a single fixed dock turn-status line; showThinking still expands live.
+	body := "line1\nline2\nline3\nline4\nline5\n"
+	model := modelWithLiveStream(BlockReasoning, body, len(body))
+	model.agent.Busy = true
+	model = model.beginUserTurn("think")
+	model.agent.LiveStream = &liveStreamState{kind: BlockReasoning, body: body, visibleLen: len(body)}
+
+	if lines := model.renderLiveStreamLines(80); len(lines) != 0 {
+		t.Fatalf("default live thinking must not paint multi-line transcript overlay, got %#v", lines)
+	}
+	status := ansi.Strip(model.renderTurnStatusLine(80))
+	if !strings.Contains(status, "thinking") {
+		t.Fatalf("dock must show thinking activity:\n%s", status)
+	}
+	if !strings.Contains(status, "line5") {
+		t.Fatalf("dock must show latest thinking snippet:\n%s", status)
+	}
+	if strings.Contains(status, "line1") {
+		t.Fatalf("dock snippet must be the latest line only:\n%s", status)
 	}
 
 	model.showThinking = true
 	expanded := ansi.Strip(strings.Join(model.renderLiveStreamLines(80), "\n"))
-	if !strings.Contains(expanded, "first thought") || !strings.Contains(expanded, "second thought") {
-		t.Fatalf("expanded live reasoning should show completed lines:\n%s", expanded)
+	if !strings.Contains(expanded, "line1") || !strings.Contains(expanded, "line5") {
+		t.Fatalf("showThinking on should show full live reasoning in transcript:\n%s", expanded)
+	}
+}
+
+func TestLiveReasoningDockShowsIncompleteTail(t *testing.T) {
+	model := modelWithLiveStream(BlockReasoning, "partial without newline", 0)
+	model.agent.Busy = true
+	model = model.beginUserTurn("think")
+	model.agent.LiveStream = &liveStreamState{kind: BlockReasoning, body: "partial without newline", visibleLen: 0}
+	status := ansi.Strip(model.renderTurnStatusLine(80))
+	if !strings.Contains(status, "thinking") || !strings.Contains(status, "partial") {
+		t.Fatalf("dock should preview incomplete thinking tail:\n%s", status)
 	}
 }
 

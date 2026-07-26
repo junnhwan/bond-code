@@ -20,14 +20,15 @@ type frontmatter struct {
 func parseFrontmatter(raw string) (frontmatter, string) {
 	text := strings.ReplaceAll(raw, "\r\n", "\n")
 	trimmed := strings.TrimLeft(text, " \t")
+	// user-invocable defaults true (Claude Code): omit the key → slash-visible.
 	if !strings.HasPrefix(trimmed, "---") {
-		return frontmatter{}, strings.TrimSpace(text)
+		return frontmatter{UserInvocable: true}, strings.TrimSpace(text)
 	}
 	rest := strings.TrimPrefix(trimmed, "---")
 	rest = strings.TrimPrefix(rest, "\n")
 	end := strings.Index(rest, "\n---")
 	if end < 0 {
-		return frontmatter{}, strings.TrimSpace(text)
+		return frontmatter{UserInvocable: true}, strings.TrimSpace(text)
 	}
 	block := rest[:end]
 	body := rest[end+len("\n---"):]

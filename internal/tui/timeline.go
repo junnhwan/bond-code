@@ -215,47 +215,153 @@ func (s TimelineState) SetAssistantBody(body string) TimelineState {
 	return s
 }
 
-// AppendReasoningChunk streams a reasoning/thinking chunk into the current turn.
-// Consecutive chunks accumulate into one reasoning block (mirroring
-// AppendAssistantChunk) so the model's thinking renders as a single faded
-// section rather than a burst of one-line blocks.
+// AppendReasoningChunk streams a raw reasoning delta into the turn's single
+// thinking block (one per turn). Tool/assistant rows are never created or
+// removed here — live streaming normally uses LiveStream instead.
 func (s TimelineState) AppendReasoningChunk(chunk string) TimelineState {
-	s = s.ensureTurn()
-	body := chunk
-	turn := s.Turns[len(s.Turns)-1]
-	if len(turn.Blocks) > 0 && turn.Blocks[len(turn.Blocks)-1].Kind == BlockReasoning {
-		body = turn.Blocks[len(turn.Blocks)-1].Body + chunk
+	if chunk == "" {
+		return s
 	}
-	return s.SetReasoningBody(body)
+	s = s.ensureTurn()
+	turn := s.Turns[len(s.Turns)-1]
+	if idx := firstReasoningBlockIndex(turn.Blocks); idx >= 0 {
+		return s.withTurnBlocks(consolidateReasoningBlocks(turn.ID, turn.Blocks, turn.Blocks[idx].Body+chunk, false))
+	}
+	return s.withTurnBlocks(consolidateReasoningBlocks(turn.ID, turn.Blocks, chunk, false))
 }
 
-// SetReasoningBody replaces the complete body of the latest consecutive
-// reasoning block, or creates that block when the turn currently ends in a
-// different kind. It is the reasoning counterpart of SetAssistantBody.
+// SetReasoningBody replaces the body of the turn's single reasoning block, or
+// creates that block when the turn has none yet. Extra reasoning blocks left
+// by older multi-block commits are collapsed into the first; tool/assistant
+// rows keep their relative order and are never dropped.
 func (s TimelineState) SetReasoningBody(body string) TimelineState {
 	s = s.ensureTurn()
+	turn := s.Turns[len(s.Turns)-1]
+	return s.withTurnBlocks(consolidateReasoningBlocks(turn.ID, turn.Blocks, body, false))
+}
+
+// MergeTurnReasoning commits a live reasoning segment at a structural boundary
+// (tool call, assistant text, turn end).
+//
+// Product rule: one thinking block per user turn (default folded). Every
+// later reasoning segment is absorbed into that same block. Tool rows stay
+// as their own blocks in commit order — they are never deleted, hidden, or
+// folded into the thinking body. Typical transcript:
+//
+//	thinking (one header) → tool → tool → tool → answer
+//
+// not N thinking headers interleaved with tools, and not a rebuild that
+// drops tool rows while merging prose.
+func (s TimelineState) MergeTurnReasoning(segment string) TimelineState {
+	segment = strings.TrimRight(segment, "\n")
+	if segment == "" {
+		return s
+	}
+	s = s.ensureTurn()
+	turn := s.Turns[len(s.Turns)-1]
+	return s.withTurnBlocks(consolidateReasoningBlocks(turn.ID, turn.Blocks, segment, true))
+}
+
+// withTurnBlocks writes a new Blocks slice onto the latest turn and bumps Version.
+func (s TimelineState) withTurnBlocks(blocks []Block) TimelineState {
 	idx := len(s.Turns) - 1
 	s.Turns = append([]Turn(nil), s.Turns...)
 	s.Version++
 	turn := s.Turns[idx]
-	turn.Blocks = append([]Block(nil), turn.Blocks...)
-	if len(turn.Blocks) > 0 {
-		lastIdx := len(turn.Blocks) - 1
-		if turn.Blocks[lastIdx].Kind == BlockReasoning {
-			turn.Blocks[lastIdx].Body = body
-			s.Turns[idx] = turn
-			return s
-		}
-	}
-	turn.Blocks = append(turn.Blocks, Block{
-		ID:        fmt.Sprintf("%s-reasoning-%d", turn.ID, len(turn.Blocks)+1),
-		Kind:      BlockReasoning,
-		Title:     "thinking",
-		Body:      body,
-		CreatedAt: time.Now(),
-	})
+	turn.Blocks = blocks
 	s.Turns[idx] = turn
 	return s
+}
+
+// firstReasoningBlockIndex returns the index of the first reasoning block, or -1.
+func firstReasoningBlockIndex(blocks []Block) int {
+	for i := range blocks {
+		if blocks[i].Kind == BlockReasoning {
+			return i
+		}
+	}
+	return -1
+}
+
+// joinReasoningBodies concatenates non-empty reasoning bodies with a blank line.
+func joinReasoningBodies(parts ...string) string {
+	var b strings.Builder
+	for _, part := range parts {
+		part = strings.TrimRight(part, "\n")
+		if part == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(part)
+	}
+	return b.String()
+}
+
+// consolidateReasoningBlocks keeps exactly one reasoning block in the turn.
+// Non-reasoning blocks (tools, assistant, …) are copied through in order and
+// never dropped. appendSegment=true appends body onto existing reasoning text
+// (commit boundary); false replaces the body (SetReasoningBody).
+func consolidateReasoningBlocks(turnID string, blocks []Block, body string, appendSegment bool) []Block {
+	body = strings.TrimRight(body, "\n")
+	kept := make([]Block, 0, len(blocks)+1)
+	reasonIdx := -1
+	var existingParts []string
+	for _, b := range blocks {
+		if b.Kind == BlockReasoning {
+			if reasonIdx < 0 {
+				reasonIdx = len(kept)
+				kept = append(kept, b)
+			}
+			if part := strings.TrimRight(b.Body, "\n"); part != "" {
+				existingParts = append(existingParts, part)
+			}
+			continue
+		}
+		kept = append(kept, b)
+	}
+
+	existing := joinReasoningBodies(existingParts...)
+	var finalBody string
+	if appendSegment {
+		switch {
+		case body == "":
+			finalBody = existing
+		case existing == "":
+			finalBody = body
+		case body == existing || strings.HasSuffix(existing, "\n\n"+body):
+			// Idempotent re-commit of the same live segment.
+			finalBody = existing
+		default:
+			finalBody = joinReasoningBodies(existing, body)
+		}
+	} else {
+		finalBody = body
+	}
+
+	if reasonIdx >= 0 {
+		kept[reasonIdx].Body = finalBody
+		kept[reasonIdx].Kind = BlockReasoning
+		if kept[reasonIdx].Title == "" {
+			kept[reasonIdx].Title = "thinking"
+		}
+		return kept
+	}
+	if finalBody == "" {
+		return kept
+	}
+	id := fmt.Sprintf("%s-reasoning-1", turnID)
+	if turnID == "" {
+		id = fmt.Sprintf("reasoning-%d", len(kept)+1)
+	}
+	return append(kept, Block{
+		ID:        id,
+		Kind:      BlockReasoning,
+		Title:     "thinking",
+		Body:      finalBody,
+		CreatedAt: time.Now(),
+	})
 }
 
 func (s TimelineState) UpsertToolBlock(tool *ToolBlock) TimelineState {
@@ -391,6 +497,9 @@ func (s TimelineState) UpsertSubagentBlock(taskID, title, status, body string) T
 }
 
 func (s TimelineState) appendBlock(kind BlockKind, title, summary, body string) TimelineState {
+	if kind == BlockReasoning {
+		return s.MergeTurnReasoning(body)
+	}
 	s = s.ensureTurn()
 	idx := len(s.Turns) - 1
 	s.Turns = append([]Turn(nil), s.Turns...)

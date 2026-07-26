@@ -189,6 +189,7 @@ func (l *Loader) Load(name string) (*Skill, error) {
 }
 
 // Expand loads a skill and builds the inline prompt body (base dir + args).
+// Used by the model-facing skill tool; rejects disable-model-invocation.
 func (l *Loader) Expand(name, args string) (string, *Skill, error) {
 	s, err := l.Load(name)
 	if err != nil {
@@ -197,6 +198,24 @@ func (l *Loader) Expand(name, args string) (string, *Skill, error) {
 	if s.DisableModelInvocation {
 		return "", s, fmt.Errorf("skill %q cannot be invoked by the model (disable-model-invocation)", name)
 	}
+	return l.expandLoaded(s, args)
+}
+
+// ExpandForUser loads a skill for a user slash command (/name).
+// User-only skills (disable-model-invocation) are allowed; model-only
+// (user-invocable: false) are rejected — matching Claude Code.
+func (l *Loader) ExpandForUser(name, args string) (string, *Skill, error) {
+	s, err := l.Load(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if !s.SlashInvocable() {
+		return "", s, fmt.Errorf("skill %q is model-only (user-invocable: false)", name)
+	}
+	return l.expandLoaded(s, args)
+}
+
+func (l *Loader) expandLoaded(s *Skill, args string) (string, *Skill, error) {
 	content := ExpandContent(*s, args)
 	if max := l.MaxChars(); max > 0 && len(content) > max {
 		content = content[:max] + "\n[skill content truncated]"

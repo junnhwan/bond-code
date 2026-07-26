@@ -15,8 +15,10 @@ func (m Model) shortcutHintItems() []HintItem {
 	}
 	if m.agent.Pending != nil {
 		return []HintItem{
-			{Key: "y", Label: "allow", Pinned: true},
-			{Key: "n", Label: "reject", Pinned: true},
+			{Key: "↑↓", Label: "select", Pinned: true},
+			{Key: "enter", Label: "confirm", Pinned: true},
+			{Key: "y", Label: "allow"},
+			{Key: "n", Label: "reject"},
 			{Key: "esc", Label: "reject"},
 		}
 	}
@@ -66,6 +68,8 @@ func (m Model) shortcutHintItems() []HintItem {
 	// Idle prompt focus — Simple-mode-aligned defaults.
 	hints := []HintItem{
 		{Key: "enter", Label: "send", Pinned: true},
+		// Ctrl+J is the reliable newline on Windows (Shift+Enter often missing).
+		{Key: "ctrl+j", Label: "newline", Pinned: true},
 		{Key: "tab", Label: "focus", Pinned: true},
 	}
 	if len(m.availableAgentIDs()) > 0 {

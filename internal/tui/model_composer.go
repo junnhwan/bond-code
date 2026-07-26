@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/junnhwan/bond-code/internal/command"
 	"github.com/junnhwan/bond-code/internal/contextx"
 )
 
@@ -126,11 +127,16 @@ func (m Model) beginUserTurn(prompt string) Model {
 	return m.markNewOutputBelow()
 }
 
-// Bubble Tea 1.x cannot encode a generic Shift modifier on Enter, but keep the
-// canonical route explicit for terminals/upstream versions that report it. Alt+Enter
-// is the Windows fallback and is representable by the current tea.KeyMsg.
+// Bubble Tea 1.x cannot encode a generic Shift modifier on Enter. Alt+Enter is
+// representable but often dropped by Windows Terminal. Ctrl+J is the reliable
+// cross-platform newline (classic terminal line-feed).
 func isComposerNewlineKey(key string) bool {
-	return key == "shift+enter" || key == "alt+enter"
+	switch key {
+	case "shift+enter", "alt+enter", "ctrl+j", "ctrl+enter":
+		return true
+	default:
+		return false
+	}
 }
 
 func isModeCycleKey(key string) bool {
@@ -213,6 +219,23 @@ func (m Model) completeSelectedSuggestion(filter, selected string) Model {
 	m.composer.HistoryIndex = -1
 	m.composer.HistoryDraft = ""
 	return m
+}
+
+// slashSuggestionAutoSubmits mirrors Claude Code's applyCommandSuggestion:
+// Enter always fills `/name `, but only auto-runs commands that do not take
+// free-text arguments. Skills and custom prompt templates keep the draft open
+// so the user can append args / a prompt, then press Enter again to submit.
+func slashSuggestionAutoSubmits(item Suggestion, registry *command.Registry) bool {
+	switch strings.ToLower(strings.TrimSpace(item.Source)) {
+	case "skill", "custom":
+		return false
+	}
+	if registry != nil {
+		if cmd, ok := registry.Get(item.Name); ok && strings.TrimSpace(cmd.PromptTemplate) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func formatFileMentionCompletion(path string) string {

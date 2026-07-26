@@ -28,13 +28,15 @@ func (m Model) handleConfirmationKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		if high {
 			return m.confirmCurrentChoice()
 		}
-		// non-high: Enter is a no-op so a pending confirmation cannot be
-		// misclicked through; the user picks y / a / n / r explicitly.
-		return m, nil, true
-	case "left", "h":
+		// Non-high: Enter confirms the highlighted vertical row (↑↓ to move).
+		// Default selection is Allow once — same as an explicit y.
+		return m.confirmCurrentChoice()
+	case "up", "k", "left", "h":
+		// Options are vertical; ↑/k move toward the top row. ←/h keep the
+		// older horizontal binding as an alias so muscle memory still works.
 		m.agent.ConfirmChoice = m.moveChoice(-1, alwaysAvail)
 		return m, nil, true
-	case "right", "l":
+	case "down", "j", "right", "l":
 		m.agent.ConfirmChoice = m.moveChoice(+1, alwaysAvail)
 		return m, nil, true
 	case "tab":
@@ -115,12 +117,10 @@ func (m Model) confirmCurrentChoice() (Model, tea.Cmd, bool) {
 }
 
 // moveChoice returns the next/prev selectable choice, cycling at both ends.
-// Choices are laid out left-to-right exactly as renderPermissionPanel draws
-// them, so a positive delta (→) moves toward the right-hand option and wraps
-// around — arrow direction stays consistent with what's on screen, and the
-// highlight cycles instead of sticking. (High-risk renders only Yes=once /
-// No=reject; alwaysAvail is false there, so the three-choice branch is never
-// used for high risk — same two-choice layout cycles the same way.)
+// Choices follow the vertical order renderPermissionPanel draws (top→bottom):
+// high-risk Yes/No, or Allow once / Always / Reject. Positive delta moves down
+// the list (and wraps); negative moves up. (High-risk never offers Always —
+// alwaysAvail is false there.)
 func (m Model) moveChoice(delta int, alwaysAvail bool) confirmChoice {
 	choices := []confirmChoice{choiceOnce, choiceReject}
 	if alwaysAvail {

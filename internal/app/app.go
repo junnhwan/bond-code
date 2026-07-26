@@ -58,6 +58,9 @@ type App struct {
 	TrustManager      *trust.Manager
 
 	RuntimePromptContext agent.RuntimePromptContext
+	// OpenSessionPickerOnStart asks the TUI to open the session manager on
+	// cold start (bare `bondcode --resume`). False for normal launches.
+	OpenSessionPickerOnStart bool
 	// planMode puts the agent into read-only planning posture: the system
 	// prompt asks for a plan and mutating tools are disabled at the loop level.
 	planMode bool
